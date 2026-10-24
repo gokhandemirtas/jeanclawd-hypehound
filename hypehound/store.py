@@ -86,18 +86,20 @@ def get_stats() -> dict:
 def is_processed(message_id: str) -> bool:
     with _conn() as conn:
         row = conn.execute(
-            "SELECT id FROM emails WHERE message_id = ?", (message_id,)
+            "SELECT processed_at FROM emails WHERE message_id = ?", (message_id,)
         ).fetchone()
-        return row is not None
+        return row is not None and row["processed_at"] is not None
 
 
 def save_email(message_id: str, sender: str, subject: str, received_at: datetime, raw_text: str) -> int:
     with _conn() as conn:
-        cursor = conn.execute(
-            "INSERT INTO emails (message_id, sender, subject, received_at, raw_text) VALUES (?, ?, ?, ?, ?)",
+        conn.execute(
+            "INSERT OR IGNORE INTO emails (message_id, sender, subject, received_at, raw_text) VALUES (?, ?, ?, ?, ?)",
             (message_id, sender, subject, received_at.isoformat(), raw_text),
         )
-        return cursor.lastrowid
+        return conn.execute(
+            "SELECT id FROM emails WHERE message_id = ?", (message_id,)
+        ).fetchone()["id"]
 
 
 def mark_processed(email_id: int) -> None:
@@ -159,6 +161,17 @@ def save_digest(period_start: datetime, period_end: datetime, content: str) -> i
             (period_start.isoformat(), period_end.isoformat(), datetime.now().isoformat(), content),
         )
         return cursor.lastrowid
+
+
+def reset_db() -> None:
+    with _conn() as conn:
+        conn.executescript("""
+            DELETE FROM digest_items;
+            DELETE FROM digests;
+            DELETE FROM citations;
+            DELETE FROM items;
+            DELETE FROM emails;
+        """)
 
 
 def create_digest(period_start: datetime, period_end: datetime) -> int:

@@ -65,6 +65,7 @@ async def classify(
     log.info(f"Classify: [bold]{len(chunks)}[/bold] chunk(s), ~[bold]{len(text.split())}[/bold] words total")
 
     all_items: list[NewsletterItem] = []
+    failed = 0
     for i, chunk in enumerate(chunks, 1):
         preview = chunk[:60].replace("\n", " ")
         chunk_urls = {orig: res for orig, res in resolved_urls.items() if orig in chunk}
@@ -81,6 +82,10 @@ async def classify(
                 all_items.extend(items)
         except Exception as exc:
             log.warning(f"[yellow]  chunk {i}/{len(chunks)} failed: {exc} — skipping[/yellow]")
+            failed += 1
+
+    if failed == len(chunks):
+        raise RuntimeError(f"All {len(chunks)} chunk(s) failed — LLM may be unavailable")
 
     # Deduplicate by headline (same headline from overlapping chunks)
     seen: set[str] = set()

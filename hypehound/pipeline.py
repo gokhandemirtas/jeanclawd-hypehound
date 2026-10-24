@@ -42,9 +42,9 @@ class PipelineState(BaseModel):
     # Podcast (populated when --podcast is requested)
     podcast_script: PodcastScript | None = None
     podcast_mode: NarratorMode = NarratorMode.single
-    podcast_json_path: str = "podcast/podcast.json"
+    podcast_json_path: str | None = None   # None = auto-generate from period_end
     podcast_tts: bool = False
-    podcast_audio_path: str = "podcast/podcast.m4a"
+    podcast_audio_path: str | None = None  # None = auto-generate from period_end
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -145,6 +145,12 @@ class Store(BaseNode[PipelineState, PipelineDeps]):
         items = email["items"]
         subject = email["subject"] or "(no subject)"
 
+        if not items:
+            log.warning(f"[yellow]No items extracted from '{subject}' — will retry next run[/yellow]")
+            ctx.state.failed_count += 1
+            ctx.deps.on_node_done("Store")
+            return Pick()
+
         with step(f"Store {len(items)} item(s) · {subject}"):
             save_items(ctx.state.current_email_id, [i.model_dump() for i in items])
             mark_processed(ctx.state.current_email_id)
@@ -168,9 +174,28 @@ class BuildDigest(BaseNode[PipelineState, PipelineDeps]):
 
             ctx.deps.on_node_done("BuildDigest")
             return End(ctx.state)
+        except ValueError as exc:
+            if "No undigested items" in str(exc):
+                log.info("[dim]No undigested items in period — skipping digest[/dim]")
+                ctx.deps.on_node_done("BuildDigest")
+                return End(ctx.state)
+            ctx.deps.on_node_error("BuildDigest")
+            raise
         except Exception:
             ctx.deps.on_node_error("BuildDigest")
             raise
+
+
+def _versioned_path(directory: str, stem: str, suffix: str) -> Path:
+    base = Path(directory) / f"{stem}{suffix}"
+    if not base.exists():
+        return base
+    n = 2
+    while True:
+        candidate = Path(directory) / f"{stem}_v{n}{suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
 
 
 @dataclass
@@ -188,14 +213,24 @@ class GeneratePodcast(BaseNode[PipelineState, PipelineDeps]):
             script = await generate_podcast_script(ctx.state.digest, ctx.state.podcast_mode)
             ctx.state.podcast_script = script
 
-            out = Path(ctx.state.podcast_json_path)
+            stem = ctx.state.period_end.strftime("%Y-%m-%d")
+            out = (
+                Path(ctx.state.podcast_json_path)
+                if ctx.state.podcast_json_path
+                else _versioned_path("podcast", stem, ".json")
+            )
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(script.model_dump_json(indent=2))
             log.info(f"Script saved → [bold cyan]{out}[/bold cyan]")
 
             if ctx.state.podcast_tts:
                 from .tts import synthesize_script
-                await synthesize_script(script, Path(ctx.state.podcast_audio_path))
+                audio_out = (
+                    Path(ctx.state.podcast_audio_path)
+                    if ctx.state.podcast_audio_path
+                    else _versioned_path("podcast", stem, ".m4a")
+                )
+                await synthesize_script(script, audio_out)
 
             ctx.deps.on_node_done("GeneratePodcast")
             return End(ctx.state)

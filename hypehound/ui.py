@@ -1,16 +1,17 @@
 import logging
+import time
 from datetime import datetime, timedelta
-from rich.align import Align
-from rich.text import Text
+
+import psutil
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widget import Widget
-from textual.widgets import Footer, Header, RichLog
 from textual.containers import Horizontal, Vertical
+from textual.widgets import Footer, Header, RichLog, Static
 from textual.worker import Worker, WorkerState
 
+from .config import settings
 from .log import attach_textual_handler, log
-from .pipeline import DIGEST_NODES, INGEST_NODES, PipelineDeps
+from .pipeline import DIGEST_NODES, INGEST_NODES, PODCAST_NODES, PipelineDeps
 from .store import get_stats
 
 
@@ -22,231 +23,377 @@ class RichLogHandler(logging.Handler):
         self.widget = widget
 
     def emit(self, record: logging.LogRecord) -> None:
-        level = record.levelname.lower()
-        colour = {
-            "debug": "dim",
-            "info": "white",
-            "warning": "yellow",
-            "error": "red",
-            "critical": "bold red",
-        }.get(level, "white")
-        self.widget.write(f"[{colour}]{self.format(record)}[/{colour}]")
+        self.widget.write(self.format(record))
 
 
-# --- Tube map widget ---------------------------------------------------------
+# --- Markup helpers ----------------------------------------------------------
 
-_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-
-_STATUS_ICON: dict[str, tuple[str, str]] = {
-    "idle":  ("○", "dim white"),
-    "done":  ("●", "green"),
-    "error": ("✗", "bold red"),
-}
+_SPINNER_FRAMES = ("◐", "◓", "◑", "◒")
 
 
-class PipelineGraphWidget(Widget):
-    DEFAULT_CSS = """
-    PipelineGraphWidget {
-        width: 1fr;
-        height: 100%;
-        padding: 1 2;
-        content-align: center top;
-    }
-    """
+def _bar(fraction: float, width: int = 10) -> str:
+    filled = min(width, int(fraction * width))
+    empty = width - filled
+    if fraction > 0.85:
+        color = "#f87171"
+    elif fraction > 0.60:
+        color = "#facc15"
+    else:
+        color = "#4ade80"
+    return f"[{color}]{'█' * filled}[/{color}][dim]{'░' * empty}[/dim]"
 
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self._pipeline_nodes: list[tuple[str, str]] = []
-        self._title: str = "Pipeline"
-        self._stats: dict = {}
-        self._frame: int = 0
-        self._spinner_timer = None
 
-    def _start_spinner(self) -> None:
-        if self._spinner_timer is None:
-            self._spinner_timer = self.set_interval(1 / 12, self._tick)
+def _model_markup(width: int = 24) -> str:
+    model = settings.inference_model
+    base = settings.inference_base_url
+    tts = settings.voicebox_url
 
-    def _stop_spinner(self) -> None:
-        if self._spinner_timer is not None:
-            self._spinner_timer.stop()
-            self._spinner_timer = None
-            self._frame = 0
+    sep = f"[dim]{'─' * width}[/dim]"
+    label_w = 10
+    val_w = max(4, width - label_w)
 
-    def _tick(self) -> None:
-        self._frame = (self._frame + 1) % len(_SPINNER_FRAMES)
-        self.refresh()
+    def row(label: str, val: str) -> str:
+        if len(val) > val_w:
+            val = val[:val_w - 1] + "…"
+        return f"[dim]{label:<{label_w}}[/dim][#22d3ee]{val}[/#22d3ee]"
 
-    def set_stats(self, stats: dict) -> None:
-        self._stats = stats
-        self.refresh()
+    return "\n".join([
+        "[bold #22d3ee]INFERENCE[/bold #22d3ee]",
+        sep,
+        row("model", model),
+        row("endpoint", base.removeprefix("http://").removeprefix("https://")),
+        row("tts", tts.removeprefix("http://").removeprefix("https://")),
+    ])
 
-    def load(self, title: str, node_names: list[str]) -> None:
-        self._title = title
-        self._pipeline_nodes = [(n, "idle") for n in node_names]
-        self.refresh()
 
-    def set_active(self, name: str) -> None:
-        self._pipeline_nodes = [
-            (n, "active" if n == name else ("done" if s == "active" else s))
-            for n, s in self._pipeline_nodes
-        ]
-        self._start_spinner()
-        self.refresh()
+def _resource_markup(width: int = 24) -> str:
+    cpu_pct = psutil.cpu_percent()
+    mem = psutil.virtual_memory()
+    mem_used_gb = mem.used / (1024 ** 3)
+    mem_total_gb = mem.total / (1024 ** 3)
+    mem_pct = mem.percent / 100
 
-    def set_done(self, name: str) -> None:
-        self._pipeline_nodes = [(n, "done" if n == name else s) for n, s in self._pipeline_nodes]
-        if not any(s == "active" for _, s in self._pipeline_nodes):
-            self._stop_spinner()
-        self.refresh()
+    bar_w = max(6, width - 12)
+    sep = f"[dim]{'─' * width}[/dim]"
 
-    def set_error(self, name: str) -> None:
-        self._pipeline_nodes = [(n, "error" if n == name else s) for n, s in self._pipeline_nodes]
-        if not any(s == "active" for _, s in self._pipeline_nodes):
-            self._stop_spinner()
-        self.refresh()
+    cpu_bar = _bar(cpu_pct / 100, bar_w)
+    mem_bar = _bar(mem_pct, bar_w)
 
-    def reset(self) -> None:
-        self._stop_spinner()
-        self._pipeline_nodes = [(n, "idle") for n, _ in self._pipeline_nodes]
-        self.refresh()
+    cpu_label = f"[dim]CPU  [/dim]{cpu_bar}[dim] {cpu_pct:4.0f}%[/dim]"
+    mem_label = f"[dim]RAM  [/dim]{mem_bar}[dim] {mem_used_gb:.1f}G[/dim]"
 
-    def render(self):
-        if not self._pipeline_nodes:
-            body = Text(justify="left")
-            s = self._stats
-            if s:
-                pending = s["pending"]
-                pending_style = "bold yellow" if pending > 0 else "dim"
-                body.append("\n")
-                body.append("  Emails ingested  ", style="dim")
-                body.append(f"{s['emails']}\n", style="white")
-                body.append("  Items extracted  ", style="dim")
-                body.append(f"{s['items']}\n", style="white")
-                body.append("  Digested         ", style="dim")
-                body.append(f"{s['digested']}\n", style="green")
-                body.append("  Pending digest   ", style="dim")
-                body.append(f"{pending}\n", style=pending_style)
-                body.append("\n")
-                if s["last_ingest"]:
-                    ts = s["last_ingest"][:16].replace("T", " ")
-                    body.append("  Last ingest   ", style="dim")
-                    body.append(f"{ts}\n", style="dim white")
-                if s["last_digest"]:
-                    ts = s["last_digest"][:16].replace("T", " ")
-                    body.append("  Last digest   ", style="dim")
-                    body.append(f"{ts}\n", style="dim white")
-                body.append("\n")
-                body.append("  i  ingest   d  digest   q  quit", style="dim")
-            else:
-                body.append("\n  No data yet\n\n  i  ingest   d  digest   q  quit", style="dim")
-            return body
+    return "\n".join([
+        "[bold #22d3ee]RESOURCES[/bold #22d3ee]",
+        sep,
+        cpu_label,
+        mem_label,
+    ])
 
-        body = Text(justify="left")
-        body.append("  │\n", style="dim")
 
-        for i, (name, status) in enumerate(self._pipeline_nodes):
-            if status == "active":
-                icon = _SPINNER_FRAMES[self._frame]
-                icon_style = "bold cyan"
-            else:
-                icon, icon_style = _STATUS_ICON.get(status, _STATUS_ICON["idle"])
+def _pipeline_markup(
+    title: str,
+    nodes: list[str],
+    current: str,
+    completed: set[str],
+    error: bool,
+    node_times: dict[str, float],
+    spinner_frame: int,
+    width: int = 24,
+) -> str:
+    if not nodes:
+        return "[bold #22d3ee]PIPELINE[/bold #22d3ee]  [dim]idle[/dim]"
 
-            body.append(f"  {icon}", style=icon_style)
+    exec_indicator = "  [bold #facc15]● EXEC[/bold #facc15]" if current != "idle" else ""
+    sep = f"[dim]{'─' * width}[/dim]"
+    lines = [f"[bold #22d3ee]{title.upper()}[/bold #22d3ee]{exec_indicator}", sep]
 
-            if status == "active":
-                body.append(f"  {name}\n", style="bold white")
-            elif status == "done":
-                body.append(f"  {name}\n", style="green")
-            elif status == "error":
-                body.append(f"  {name}\n", style="red")
-            else:
-                body.append(f"  {name}\n", style="dim")
+    for i, name in enumerate(nodes):
+        is_current = name == current
+        is_done = name in completed
+        is_error = is_current and error
 
-            if i < len(self._pipeline_nodes) - 1:
-                body.append("  │\n", style="dim")
+        if is_error:
+            icon, style = "◎", "#f87171"
+        elif is_current:
+            icon, style = _SPINNER_FRAMES[spinner_frame % len(_SPINNER_FRAMES)], "#facc15"
+        elif is_done:
+            icon, style = "●", "#4ade80"
+        else:
+            icon, style = "○", "dim"
 
-        body.append("  │\n", style="dim")
+        label = f"{icon} {name}"
+        if name in node_times:
+            elapsed = node_times[name]
+            dur = f"{elapsed:.1f}s" if elapsed < 10 else f"{elapsed:.0f}s"
+            pad = max(1, width - len(label) - len(dur))
+            lines.append(f"[{style}]{label}[/{style}][dim]{' ' * pad}{dur}[/dim]")
+        elif is_current and not is_error:
+            pad = max(1, width - len(label) - 1)
+            lines.append(f"[{style}]{label}[/{style}][dim]{' ' * pad}…[/dim]")
+        else:
+            lines.append(f"[{style}]{label}[/{style}]")
 
-        return body
+        if i < len(nodes) - 1:
+            conn_style = "#4ade80" if is_done else ("dim" if not is_current else "#facc15")
+            lines.append(f"[{conn_style}]│[/{conn_style}]")
+
+    return "\n".join(lines)
+
+
+def _stats_markup(width: int = 24) -> str:
+    try:
+        s = get_stats()
+    except Exception:
+        return ""
+    sep = f"[dim]{'─' * width}[/dim]"
+    pending = s["pending"]
+    pending_style = "bold #facc15" if pending > 0 else "dim"
+    lines = [
+        "[bold #22d3ee]STORE[/bold #22d3ee]",
+        sep,
+        f"[dim]emails    [/dim][#22d3ee]{s['emails']}[/#22d3ee]",
+        f"[dim]items     [/dim][#22d3ee]{s['items']}[/#22d3ee]",
+        f"[dim]digested  [/dim][#22d3ee]{s['digested']}[/#22d3ee]",
+        f"[dim]pending   [/dim][{pending_style}]{pending}[/{pending_style}]",
+    ]
+    if s["last_ingest"]:
+        ts = s["last_ingest"][:16].replace("T", " ")
+        lines.append(f"[dim]last in   {ts}[/dim]")
+    if s["last_digest"]:
+        ts = s["last_digest"][:16].replace("T", " ")
+        lines.append(f"[dim]last dig  {ts}[/dim]")
+    return "\n".join(lines)
 
 
 # --- App ---------------------------------------------------------------------
 
 class HypeHoundApp(App):
     CSS = """
+    Screen {
+        background: #0f111a;
+        color: #f1f5f9;
+    }
+    Header {
+        height: 1;
+        background: #141622;
+        color: #f1f5f9;
+        border-bottom: solid #24283b;
+    }
+    Footer {
+        height: 1;
+        background: #141622;
+        color: #94a3b8;
+        border-top: solid #24283b;
+    }
     Horizontal {
         height: 1fr;
     }
     #log-col {
         width: 2fr;
         height: 100%;
-        padding: 0;
     }
     RichLog {
         height: 100%;
-        border: solid $panel;
+        border: none;
         padding: 0 1;
+        background: #0f111a;
+        scrollbar-color: #24283b #0f111a;
     }
-    #graph-col {
-        width: 1fr;
+    #right-panel {
+        width: 25%;
         height: 100%;
-        padding: 0;
+        border-left: tall #24283b;
+        background: #141624;
+    }
+    #right-info {
+        width: 1fr;
+        height: auto;
+        padding: 1 2;
+    }
+    #model-panel, #resource-panel, #pipeline-panel, #stats-panel {
+        width: 100%;
+        height: auto;
+        padding: 0 0 1 0;
     }
     """
 
     BINDINGS = [
         Binding("i", "run_ingest", "Ingest", show=True),
         Binding("d", "run_digest", "Digest", show=True),
+        Binding("p", "run_podcast", "Podcast", show=True),
+        Binding("r", "run_all", "Run all", show=True),
+        Binding("ctrl+x", "reset_db", "Reset DB", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
 
     TITLE = "HypeHound"
     SUB_TITLE = "newsletter ingestor & digest engine"
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._pipeline_title = "PIPELINE"
+        self._pipeline_nodes: list[str] = []
+        self._pipeline_current = "idle"
+        self._pipeline_completed: set[str] = set()
+        self._pipeline_error = False
+        self._node_times: dict[str, float] = {}
+        self._node_start_time: float = 0.0
+        self._spinner_frame = 0
+        self._confirming_reset = False
+
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield Header(show_clock=True)
         with Horizontal():
             with Vertical(id="log-col"):
-                yield RichLog(id="pipeline-log", highlight=True, markup=True, wrap=True)
-            with Vertical(id="graph-col"):
-                yield PipelineGraphWidget(id="pipeline-graph")
+                yield RichLog(id="pipeline-log", highlight=False, markup=True, wrap=True)
+            with Vertical(id="right-panel"):
+                with Vertical(id="right-info"):
+                    yield Static("", id="model-panel", markup=True)
+                    yield Static("", id="resource-panel", markup=True)
+                    yield Static("", id="pipeline-panel", markup=True)
+                    yield Static("", id="stats-panel", markup=True)
         yield Footer()
 
     def on_mount(self) -> None:
+        psutil.cpu_percent(interval=None)  # warm up
+
         log_widget = self.query_one("#pipeline-log", RichLog)
         handler = RichLogHandler(log_widget)
         handler.setFormatter(logging.Formatter("%(message)s"))
         attach_textual_handler(handler)
-        self._refresh_stats()
+
+        self.set_interval(1.0, self._refresh_resources)
+        self.set_interval(1.0, self._refresh_model)
+        self.set_interval(1.0, self._refresh_stats)
+        self.set_interval(0.2, self._refresh_pipeline)
+        self.set_interval(0.1, self._tick_spinner)
+
+        self.call_after_refresh(self._refresh_model)
+        self.call_after_refresh(self._refresh_resources)
+        self.call_after_refresh(self._refresh_pipeline)
+        self.call_after_refresh(self._refresh_stats)
+
         log.info(
-            "[bold cyan]HypeHound ready.[/bold cyan]  "
-            "Press [bold]i[/bold] to ingest · [bold]d[/bold] for digest"
+            "[bold #22d3ee]HypeHound ready.[/bold #22d3ee]  "
+            "[dim]i[/dim] ingest  [dim]d[/dim] digest  [dim]p[/dim] podcast  "
+            "[dim]r[/dim] run all  [dim]ctrl+x[/dim] reset  [dim]q[/dim] quit"
         )
 
-    def _refresh_stats(self) -> None:
+    def _right_width(self) -> int:
         try:
-            stats = get_stats()
-            self.query_one("#pipeline-graph", PipelineGraphWidget).set_stats(stats)
+            return max(16, self.query_one("#model-panel", Static).size.width)
+        except Exception:
+            return 24
+
+    def on_resize(self) -> None:
+        self._refresh_model()
+
+    def _refresh_model(self) -> None:
+        try:
+            self.query_one("#model-panel", Static).update(_model_markup(self._right_width()))
         except Exception:
             pass
 
+    def _refresh_resources(self) -> None:
+        try:
+            self.query_one("#resource-panel", Static).update(_resource_markup(self._right_width()))
+        except Exception:
+            pass
+
+    def _tick_spinner(self) -> None:
+        if self._pipeline_current != "idle":
+            self._spinner_frame += 1
+
+    def _refresh_pipeline(self) -> None:
+        try:
+            self.query_one("#pipeline-panel", Static).update(
+                _pipeline_markup(
+                    self._pipeline_title,
+                    self._pipeline_nodes,
+                    self._pipeline_current,
+                    self._pipeline_completed,
+                    self._pipeline_error,
+                    self._node_times,
+                    self._spinner_frame,
+                    self._right_width(),
+                )
+            )
+        except Exception:
+            pass
+
+    def _refresh_stats(self) -> None:
+        try:
+            self.query_one("#stats-panel", Static).update(_stats_markup(self._right_width()))
+        except Exception:
+            pass
+
+    # --- Pipeline node callbacks ---------------------------------------------
+
+    def _node_start(self, name: str) -> None:
+        self._pipeline_current = name
+        self._pipeline_error = False
+        self._node_start_time = time.monotonic()
+
+    def _node_done(self, name: str) -> None:
+        elapsed = time.monotonic() - self._node_start_time
+        self._node_times[name] = elapsed
+        self._pipeline_completed.add(name)
+        self._pipeline_current = "idle"
+
+    def _node_error(self, name: str) -> None:
+        self._pipeline_error = True
+        self._pipeline_current = "idle"
+
+    def _reset_pipeline(self, title: str, nodes: list[str]) -> None:
+        self._pipeline_title = title
+        self._pipeline_nodes = nodes
+        self._pipeline_current = "idle"
+        self._pipeline_completed = set()
+        self._pipeline_error = False
+        self._node_times = {}
+        self._spinner_frame = 0
+
     def _make_deps(self) -> PipelineDeps:
-        graph_widget = self.query_one("#pipeline-graph", PipelineGraphWidget)
         return PipelineDeps(
-            on_node_start=graph_widget.set_active,
-            on_node_done=graph_widget.set_done,
-            on_node_error=graph_widget.set_error,
+            on_node_start=self._node_start,
+            on_node_done=self._node_done,
+            on_node_error=self._node_error,
         )
 
+    # --- Actions -------------------------------------------------------------
+
     def action_run_ingest(self) -> None:
-        graph_widget = self.query_one("#pipeline-graph", PipelineGraphWidget)
-        graph_widget.load("Ingest", INGEST_NODES)
+        self._reset_pipeline("Ingest", INGEST_NODES)
         self.run_worker(self._ingest(), exclusive=True, name="ingest")
 
     def action_run_digest(self) -> None:
-        graph_widget = self.query_one("#pipeline-graph", PipelineGraphWidget)
-        graph_widget.load("Digest", DIGEST_NODES)
+        self._reset_pipeline("Digest", DIGEST_NODES)
         self.run_worker(self._digest(), exclusive=True, name="digest")
+
+    def action_run_podcast(self) -> None:
+        self._reset_pipeline("Podcast", DIGEST_NODES + PODCAST_NODES)
+        self.run_worker(self._podcast(), exclusive=True, name="podcast")
+
+    def action_run_all(self) -> None:
+        self._reset_pipeline("Full run", INGEST_NODES + DIGEST_NODES + PODCAST_NODES)
+        self.run_worker(self._run_all(), exclusive=True, name="run_all")
+
+    def action_reset_db(self) -> None:
+        if self._confirming_reset:
+            self._confirming_reset = False
+            from .store import reset_db
+            reset_db()
+            self._reset_pipeline("", [])
+            self._refresh_stats()
+            log.info("[bold red]Database cleared.[/bold red]")
+        else:
+            self._confirming_reset = True
+            log.info("[yellow]Press ctrl+x again to confirm database reset, any other key to cancel.[/yellow]")
+
+    def on_key(self, event) -> None:
+        if self._confirming_reset and event.key != "ctrl+x":
+            self._confirming_reset = False
+            log.info("[dim]Reset cancelled.[/dim]")
 
     async def _ingest(self) -> None:
         from .pipeline import run_ingest
@@ -258,10 +405,30 @@ class HypeHoundApp(App):
         start = end - timedelta(days=7)
         await run_digest(start, end, deps=self._make_deps())
 
+    async def _podcast(self) -> None:
+        from .models import NarratorMode
+        from .pipeline import run_podcast
+        end = datetime.now()
+        start = end - timedelta(days=1)
+        await run_podcast(start, end, mode=NarratorMode.single, deps=self._make_deps())
+
+    async def _run_all(self) -> None:
+        from .models import NarratorMode
+        from .pipeline import run_digest, run_ingest, run_podcast
+        deps = self._make_deps()
+        await run_ingest(deps=deps)
+        end = datetime.now()
+        start = end - timedelta(days=1)
+        digest_state = await run_digest(start, end, deps=deps)
+        if digest_state.digest is not None:
+            await run_podcast(start, end, mode=NarratorMode.single, deps=deps)
+
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.state == WorkerState.ERROR:
             log.error(f"[red]Worker '{event.worker.name}' failed: {event.worker.error}[/red]")
         if event.state in (WorkerState.SUCCESS, WorkerState.ERROR):
+            self._pipeline_current = "idle"
+            self._refresh_pipeline()
             self._refresh_stats()
 
 
