@@ -71,7 +71,7 @@ async def classify(
         chunk_urls = {orig: res for orig, res in resolved_urls.items() if orig in chunk}
         url_context = "\n".join(f"- {orig} → {res}" for orig, res in chunk_urls.items())
         try:
-            with step(f"LLM · chunk {i}/{len(chunks)}  [dim]{preview}…[/dim]"):
+            with step(f"LLM · chunk {i}/{len(chunks)}  [dim]{preview}…[/dim]", show_start=True):
                 result = await _agent.run(
                     f"Newsletter section:\n\n{chunk}\n\nResolved URLs:\n{url_context}"
                 )

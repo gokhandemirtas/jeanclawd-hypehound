@@ -92,7 +92,7 @@ async def generate_digest(period_start: datetime, period_end: datetime) -> Diges
             f"{items_text}"
         )
         try:
-            with step(f"LLM · {cat} ({len(items)} item(s))"):
+            with step(f"LLM · {cat} ({len(items)} item(s))", show_start=True):
                 result = await _agent.run(prompt)
         except Exception as exc:
             log.error(f"[red]Failed to digest category {cat!r}: {type(exc).__name__}: {exc!s:.200}[/red]")

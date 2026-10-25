@@ -32,9 +32,10 @@ def attach_textual_handler(handler: logging.Handler) -> None:
 
 
 @contextmanager
-def step(name: str) -> Generator[None, None, None]:
-    """Time a pipeline step and log start, success, or failure with elapsed time."""
-    log.info(f"[cyan]→[/cyan]  {name}")
+def step(name: str, show_start: bool = False) -> Generator[None, None, None]:
+    """Time a pipeline step and log success or failure with elapsed time."""
+    if show_start:
+        log.info(f"[cyan]→[/cyan]  {name}")
     start = time.perf_counter()
     try:
         yield
