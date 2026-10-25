@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify
@@ -12,16 +14,18 @@ def extract_urls(html: str) -> list[str]:
     return [a["href"] for a in soup.find_all("a", href=True) if a["href"].startswith("http")]
 
 
-def resolve_url(url: str, timeout: float = 5.0) -> str:
-    """Follow redirects to get the real URL behind a tracking link."""
+async def _resolve_one(client: httpx.AsyncClient, url: str) -> tuple[str, str]:
     try:
-        with httpx.Client(follow_redirects=True, timeout=timeout) as client:
-            response = client.head(url)
-            return str(response.url)
+        response = await client.head(url)
+        return url, str(response.url)
     except Exception:
-        return url
+        return url, url
 
 
-def resolve_urls(urls: list[str]) -> dict[str, str]:
-    """Return mapping of original → resolved URL."""
-    return {url: resolve_url(url) for url in urls}
+async def resolve_urls(urls: list[str], timeout: float = 5.0) -> dict[str, str]:
+    """Resolve all tracking URLs concurrently; return original → resolved mapping."""
+    if not urls:
+        return {}
+    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+        pairs = await asyncio.gather(*(_resolve_one(client, u) for u in urls))
+    return dict(pairs)

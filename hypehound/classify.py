@@ -76,7 +76,7 @@ async def classify(
                     f"Newsletter section:\n\n{chunk}\n\nResolved URLs:\n{url_context}"
                 )
                 items = result.output
-                usage = result.usage()
+                usage = result.usage
                 tok = f"[dim]{usage.total_tokens} tok[/dim]" if usage.total_tokens else ""
                 log.info(f"  chunk {i}/{len(chunks)}: [green]{len(items)} item(s)[/green] extracted  {tok}")
                 all_items.extend(items)

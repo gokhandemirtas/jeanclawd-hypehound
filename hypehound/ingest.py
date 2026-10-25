@@ -25,9 +25,11 @@ async def fetch_new_emails() -> list[dict]:
     threads = threads_resp.get("data", [])
     log.debug(f"Resend returned {len(threads)} thread(s)")
 
+    n = len(threads)
     new: list[dict] = []
-    for thread in threads:
+    for i, thread in enumerate(threads, 1):
         thread_id = thread.get("id", "")
+        log.info(f"[dim]Thread {i}/{n}[/dim] fetching emails…")
         try:
             emails_resp = await resend.InboxThreadEmails.list_async(_INBOX, thread_id)
         except Exception as exc:
@@ -43,10 +45,12 @@ async def fetch_new_emails() -> list[dict]:
                 log.debug(f"Skipping already-processed: {email.get('subject') or dedup_key}")
                 continue
 
+            subject = email.get("subject") or "(no subject)"
             try:
-                new.append(_parse_email(email, thread.get("id", ""), dedup_key))
+                log.info(f"  [dim]Resolving URLs for[/dim] {subject}")
+                new.append(await _parse_email(email, thread_id, dedup_key))
             except Exception as exc:
-                log.warning(f"[yellow]Failed to parse email '{email.get('subject')}': {exc}[/yellow]")
+                log.warning(f"[yellow]Failed to parse email '{subject}': {exc}[/yellow]")
                 continue
 
     return new
@@ -61,12 +65,12 @@ async def archive_thread(thread_id: str) -> None:
         log.warning(f"[yellow]Failed to archive thread {thread_id}: {exc}[/yellow]")
 
 
-def _parse_email(email: dict, thread_id: str, message_id: str) -> dict:
+async def _parse_email(email: dict, thread_id: str, message_id: str) -> dict:
     html_body = email.get("html") or ""
     text_body = html_to_text(html_body) if html_body else (email.get("text") or "")
 
     raw_urls = extract_urls(html_body)
-    resolved = resolve_urls(raw_urls)
+    resolved = await resolve_urls(raw_urls)
 
     received_at = _parse_date(email.get("received_at") or "")
 
