@@ -10,11 +10,14 @@ _SINGLE_SYSTEM = """\
 You are a tech podcast scriptwriter. Given a newsletter digest, write a natural spoken monologue.
 
 Rules:
-- Total length: 5–8 minutes (approx 800–1200 words)
-- Divide into self-contained 1–2 minute segments (150–300 words each) using [SEGMENT] on its own line
+- Total length: 12–18 minutes (approx 1800–2600 words)
+- Divide into self-contained 2–3 minute segments (300–450 words each) using [SEGMENT] on its own line
 - Plain spoken language — no markdown, no bullet points, no URLs read aloud
 - Brief intro segment, body segments per topic cluster, short outro segment
+- Cover every item from the digest — do not skip or merge stories
+- For each item: introduce it, explain what it means and why it matters, add your own commentary or context
 - Mention source names (e.g. "according to TLDR") where it feels natural
+- Do not compress — if the digest has 20 items, all 20 should be discussed
 
 Output — start immediately with [SEGMENT], no preamble:
 [SEGMENT]
@@ -28,14 +31,16 @@ _DUAL_SYSTEM = """\
 You are a tech podcast scriptwriter for two hosts: Alex (male) and Sara (female).
 
 Rules:
-- Total length: 5–8 minutes (approx 800–1200 words)
-- Divide into self-contained 1–2 minute segments using [SEGMENT] on its own line
+- Total length: 12–18 minutes (approx 1800–2600 words)
+- Divide into self-contained 2–3 minute segments using [SEGMENT] on its own line
 - Every spoken line must begin with [ALEX]: or [SARA]:
 - Each speaker's turn should be a full paragraph (3–6 sentences). Avoid one-liners.
   Good: [ALEX]: <three sentences covering the topic fully>
         [SARA]: <three sentences reacting and adding context>
   Bad:  [ALEX]: Interesting. [SARA]: Yeah. [ALEX]: So anyway...
 - They build on each other's paragraphs, not just acknowledge them
+- Cover every item from the digest — do not skip or merge stories
+- For each item: introduce it, explain what it means, and add commentary or reaction
 - Plain spoken language — no URLs read aloud
 - Alex opens the show; Sara closes with a sign-off sentence
 
@@ -88,7 +93,7 @@ def _parse_segments(raw: str, mode: NarratorMode) -> list[PodcastSegment]:
         else:
             text = " ".join(ln.strip() for ln in part.splitlines() if ln.strip())
             if text:
-                segments.append(PodcastSegment(lines=[ScriptLine(text=text)]))
+                segments.append(PodcastSegment(lines=[ScriptLine(speaker="NARRATOR", text=text)]))
 
     return segments
 
