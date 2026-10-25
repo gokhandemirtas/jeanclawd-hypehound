@@ -5,75 +5,98 @@ from pydantic_ai import Agent
 from .config import settings
 from .inference import get_model
 from .log import log, step
-from .models import Citation, Digest, NarratorMode, PodcastScript, PodcastSegment, ScriptLine
+from .models import Citation, Digest, DigestEntry, NarratorMode, PodcastScript, PodcastSegment, ScriptLine
 
-_SINGLE_SYSTEM = """\
-You are a tech podcast scriptwriter. Given a newsletter digest, write a natural spoken monologue.
+_SINGLE_CATEGORY_SYSTEM = """\
+You are a tech podcast scriptwriter generating one section of a longer episode.
 
 Rules:
-- Total length: 12–18 minutes (approx 1800–2600 words)
-- Divide into self-contained 2–3 minute segments (300–450 words each) using [SEGMENT] on its own line
+- Write 1–3 natural spoken segments covering ALL items in the list provided
+- Mark each segment with [SEGMENT] on its own line
 - Plain spoken language — no markdown, no bullet points, no URLs read aloud
-- Brief intro segment, body segments per topic cluster, short outro segment
-- Cover every item from the digest — do not skip or merge stories
-- For each item: introduce it, explain what it means and why it matters, add your own commentary or context
+- Cover EVERY item — no skipping, no merging stories together
+- Each item gets at least 2–3 sentences: introduce it, explain what it means, add commentary
 - Mention source names (e.g. "according to TLDR") where it feels natural
-- Do not compress — if the digest has 20 items, all 20 should be discussed
 
-Output — start immediately with [SEGMENT], no preamble:
-[SEGMENT]
-<segment text>
-
-[SEGMENT]
-<next segment>
+Output — start immediately with [SEGMENT], no preamble.
 """
 
-def _dual_system() -> str:
+
+def _dual_category_system() -> str:
     male = settings.tts_voice_male.capitalize()
     female = settings.tts_voice_female.capitalize()
     return f"""\
-You are a tech podcast scriptwriter for two hosts: {male} (male) and {female} (female).
+You are a tech podcast scriptwriter generating one section of a longer episode for two hosts: {male} (male) and {female} (female).
 
 Rules:
-- Total length: 12–18 minutes (approx 1800–2600 words)
-- Divide into self-contained 2–3 minute segments using [SEGMENT] on its own line
+- Write 1–3 segments covering ALL items in the list provided
+- Mark each segment with [SEGMENT] on its own line
 - Every spoken line must begin with [{male.upper()}]: or [{female.upper()}]:
-- Each speaker's turn should be a full paragraph (3–6 sentences). Avoid one-liners.
+- Each speaker's turn should be a full paragraph (3–6 sentences). No one-liners.
   Good: [{male.upper()}]: <three sentences covering the topic fully>
         [{female.upper()}]: <three sentences reacting and adding context>
-  Bad:  [{male.upper()}]: Interesting. [{female.upper()}]: Yeah. [{male.upper()}]: So anyway...
+  Bad:  [{male.upper()}]: Interesting. [{female.upper()}]: Yeah.
 - They build on each other's paragraphs, not just acknowledge them
-- Cover every item from the digest — do not skip or merge stories
-- For each item: introduce it, explain what it means, and add commentary or reaction
+- Cover EVERY item — no skipping, no merging stories together
+- Each item gets at least 2–3 sentences per host turn
 - Plain spoken language — no URLs read aloud
-- {male} opens every show with a greeting that introduces both hosts by name and sets up the episode.
-  Vary the wording each time but always include: the show name (HypeHound), {male} introducing himself,
-  mentioning {female} as co-host, and a one-line preview of what's in the episode.
-  Example variations (do not copy verbatim):
-    "Welcome to HypeHound, I'm {male} and I have {female} with me today. Here's what's been happening..."
-    "Hey, welcome back to HypeHound. I'm {male}, joined as always by {female}. A packed episode today..."
-    "This is HypeHound, I'm {male}. {female}'s here too — let's get into it. Lots to cover this week..."
-- {female} closes with a sign-off that thanks the listener and teases next time
 
-Output — start immediately with [SEGMENT], no preamble:
-[SEGMENT]
-[{male.upper()}]: <greeting introducing both hosts and previewing the episode>
-[{female.upper()}]: ...
-
-[SEGMENT]
-...
+Output — start immediately with [SEGMENT], no preamble.
 """
+
 
 _single_agent: Agent[None, str] = Agent(
     get_model(),
     output_type=str,
-    system_prompt=_SINGLE_SYSTEM,
+    system_prompt=_SINGLE_CATEGORY_SYSTEM,
 )
 _dual_agent: Agent[None, str] = Agent(
     get_model(),
     output_type=str,
-    system_prompt=_dual_system(),
+    system_prompt=_dual_category_system(),
 )
+
+
+def _build_category_prompt(
+    entry: DigestEntry,
+    mode: NarratorMode,
+    is_first: bool,
+    is_last: bool,
+) -> str:
+    male = settings.tts_voice_male.capitalize()
+    female = settings.tts_voice_female.capitalize()
+    n = len(entry.items)
+
+    lines = [f"Category: {entry.category} ({n} items — cover all {n})\n"]
+    for item in entry.items:
+        lines.append(f"- {item.headline}: {item.summary}")
+
+    if is_first:
+        if mode == NarratorMode.dual:
+            lines.append(
+                f"\nOpen this section with [{male.upper()}]: greeting that introduces both "
+                f"hosts by name ({male} and {female}), names the show (HypeHound), and "
+                f"previews the episode. Vary the wording — don't use a template."
+            )
+        else:
+            lines.append(
+                "\nOpen this section with a brief host greeting that names the show "
+                "(HypeHound) and previews the episode."
+            )
+
+    if is_last:
+        if mode == NarratorMode.dual:
+            lines.append(
+                f"\nClose this section with [{female.upper()}]: sign-off that thanks "
+                f"listeners and teases next time."
+            )
+        else:
+            lines.append(
+                "\nClose this section with a brief outro that thanks listeners and "
+                "teases next time."
+            )
+
+    return "\n".join(lines)
 
 
 def _parse_segments(raw: str, mode: NarratorMode) -> list[PodcastSegment]:
@@ -98,7 +121,6 @@ def _parse_segments(raw: str, mode: NarratorMode) -> list[PodcastSegment]:
                 if m:
                     lines.append(ScriptLine(speaker=m.group(1).upper(), text=m.group(2).strip()))
                 elif lines:
-                    # continuation line — append to previous speaker's text
                     prev = lines[-1]
                     lines[-1] = ScriptLine(speaker=prev.speaker, text=prev.text + " " + raw_line)
             if lines:
@@ -128,27 +150,38 @@ async def generate_podcast_script(
     digest: Digest,
     mode: NarratorMode = NarratorMode.single,
 ) -> PodcastScript:
-    digest_text = "\n\n".join(
-        f"## {entry.category}\n" + "\n".join(
-            f"- {item.headline}: {item.summary}" for item in entry.items
-        )
-        for entry in digest.entries
+    agent = _dual_agent if mode == NarratorMode.dual else _single_agent
+    n_categories = len(digest.entries)
+    all_segments: list[PodcastSegment] = []
+    total_items = sum(len(e.items) for e in digest.entries)
+
+    log.info(
+        f"Generating {mode.value}-narrator script: "
+        f"[bold]{n_categories}[/bold] categories, "
+        f"[bold]{total_items}[/bold] items"
     )
 
-    agent = _dual_agent if mode == NarratorMode.dual else _single_agent
+    for i, entry in enumerate(digest.entries):
+        is_first = i == 0
+        is_last = i == n_categories - 1
+        prompt = _build_category_prompt(entry, mode, is_first, is_last)
 
-    with step(f"Generate {mode.value}-narrator podcast script"):
-        result = await agent.run(digest_text)
+        with step(
+            f"Script [{i + 1}/{n_categories}] {entry.category} "
+            f"({len(entry.items)} item{'s' if len(entry.items) != 1 else ''})",
+            show_start=True,
+        ):
+            result = await agent.run(prompt)
 
-    raw = result.output
-    segments = _parse_segments(raw, mode)
+        segs = _parse_segments(result.output, mode)
+        all_segments.extend(segs)
 
     total_words = sum(
         sum(len(line.text.split()) for line in seg.lines)
-        for seg in segments
+        for seg in all_segments
     )
     log.info(
-        f"Script: [bold]{len(segments)}[/bold] segment(s), "
+        f"Script: [bold]{len(all_segments)}[/bold] segment(s), "
         f"~[bold]{total_words}[/bold] words "
         f"(≈{total_words // 130} min)"
     )
@@ -161,7 +194,7 @@ async def generate_podcast_script(
     return PodcastScript(
         title=title,
         mode=mode,
-        segments=segments,
+        segments=all_segments,
         citations=_collect_citations(digest),
     )
 
@@ -169,10 +202,7 @@ async def generate_podcast_script(
 if __name__ == "__main__":
     import argparse
     import asyncio
-    import json
     from pathlib import Path
-
-    from .store import get_latest_digest_content
 
     parser = argparse.ArgumentParser(description="Generate a podcast script from the latest digest")
     parser.add_argument("--mode", choices=["single", "dual"], default="single")
