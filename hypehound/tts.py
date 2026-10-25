@@ -85,24 +85,28 @@ async def _synthesize_segment(segment: PodcastSegment, mode: NarratorMode, outpu
 # --- ffmpeg helpers ----------------------------------------------------------
 
 def _concat_to(inputs: list[Path], output: Path) -> None:
-    """Concat audio files, re-encoding to match output format."""
+    """Concat audio files using the concat filter (handles mixed sample rates / channels)."""
     if len(inputs) == 1:
         shutil.copy(inputs[0], output)
         return
-    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
-        for p in inputs:
-            f.write(f"file '{p}'\n")
-        list_path = Path(f.name)
-    try:
-        ext = output.suffix.lower()
-        codec = ["-c:a", "aac", "-b:a", "64k", "-ac", "1"] if ext == ".m4a" else ["-c:a", "copy"]
-        subprocess.run(
-            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path), *codec, str(output)],
-            check=True,
-            capture_output=True,
-        )
-    finally:
-        list_path.unlink(missing_ok=True)
+
+    ext = output.suffix.lower()
+    codec = ["-c:a", "aac", "-b:a", "64k", "-ac", "1"] if ext == ".m4a" else ["-c:a", "pcm_s16le"]
+
+    input_args = []
+    for p in inputs:
+        input_args += ["-i", str(p)]
+
+    n = len(inputs)
+    filter_complex = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[out]"
+
+    result = subprocess.run(
+        ["ffmpeg", "-y", *input_args, "-filter_complex", filter_complex, "-map", "[out]", *codec, str(output)],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.decode(errors="replace")
+        raise RuntimeError(f"ffmpeg failed (exit {result.returncode}):\n{stderr}")
 
 
 # --- Public API --------------------------------------------------------------
