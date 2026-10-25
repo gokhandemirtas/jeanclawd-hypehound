@@ -3,7 +3,7 @@ from datetime import datetime
 
 from .config import settings
 from .log import log
-from .parse import html_to_text, extract_urls, resolve_urls
+from .parse import html_to_text, extract_urls
 from .store import is_processed
 
 resend.api_key = settings.resend_api_key
@@ -47,8 +47,7 @@ async def fetch_new_emails() -> list[dict]:
 
             subject = email.get("subject") or "(no subject)"
             try:
-                log.info(f"  [dim]Resolving URLs for[/dim] {subject}")
-                new.append(await _parse_email(email, thread_id, dedup_key))
+                new.append(_parse_email(email, thread_id, dedup_key))
             except Exception as exc:
                 log.warning(f"[yellow]Failed to parse email '{subject}': {exc}[/yellow]")
                 continue
@@ -65,12 +64,12 @@ async def archive_thread(thread_id: str) -> None:
         log.warning(f"[yellow]Failed to archive thread {thread_id}: {exc}[/yellow]")
 
 
-async def _parse_email(email: dict, thread_id: str, message_id: str) -> dict:
+def _parse_email(email: dict, thread_id: str, message_id: str) -> dict:
     html_body = email.get("html") or ""
     text_body = html_to_text(html_body) if html_body else (email.get("text") or "")
 
     raw_urls = extract_urls(html_body)
-    resolved = await resolve_urls(raw_urls)
+    resolved = {url: url for url in raw_urls}
 
     received_at = _parse_date(email.get("received_at") or "")
 
