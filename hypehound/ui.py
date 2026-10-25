@@ -454,7 +454,7 @@ class HypeHoundApp(App):
         start = end - timedelta(days=1)
         digest_state = await run_digest(start, end, deps=deps)
         if digest_state.digest is not None:
-            await run_podcast(start, end, mode=NarratorMode.single, deps=deps)
+            await run_podcast(start, end, mode=NarratorMode.single, deps=deps, digest=digest_state.digest)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.state == WorkerState.ERROR:

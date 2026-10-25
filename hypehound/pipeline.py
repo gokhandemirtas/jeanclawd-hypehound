@@ -322,12 +322,15 @@ async def run_podcast(
     json_path: str = "podcast.json",
     audio_path: str = "podcast.m4a",
     deps: PipelineDeps | None = None,
+    digest: "Digest | None" = None,
 ) -> PipelineState:
-    digest_state = await run_digest(period_start, period_end, deps=deps)
+    if digest is None:
+        digest_state = await run_digest(period_start, period_end, deps=deps)
+        digest = digest_state.digest
     state = PipelineState(
         period_start=period_start,
         period_end=period_end,
-        digest=digest_state.digest,
+        digest=digest,
         podcast_mode=mode,
         podcast_tts=tts,
         podcast_json_path=json_path,
