@@ -452,7 +452,7 @@ class HypeHoundApp(App):
                 log.info("[dim]Resuming from latest stored digest[/dim]")
             except Exception as exc:
                 log.warning(f"[yellow]Could not load stored digest: {exc} — will re-run digest[/yellow]")
-        await run_podcast(start, end, mode=NarratorMode.single, deps=self._make_deps(), digest=digest)
+        await run_podcast(start, end, mode=NarratorMode.dual, deps=self._make_deps(), digest=digest)
 
     async def _run_all(self) -> None:
         from .models import NarratorMode
@@ -463,7 +463,7 @@ class HypeHoundApp(App):
         start = end - timedelta(days=1)
         digest_state = await run_digest(start, end, deps=deps)
         if digest_state.digest is not None:
-            await run_podcast(start, end, mode=NarratorMode.single, deps=deps, digest=digest_state.digest)
+            await run_podcast(start, end, mode=NarratorMode.dual, deps=deps, digest=digest_state.digest)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.state == WorkerState.ERROR:

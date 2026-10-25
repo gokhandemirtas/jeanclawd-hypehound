@@ -320,7 +320,7 @@ async def run_digest(period_start: datetime, period_end: datetime, deps: Pipelin
 async def run_podcast(
     period_start: datetime,
     period_end: datetime,
-    mode: NarratorMode = NarratorMode.single,
+    mode: NarratorMode = NarratorMode.dual,
     tts: bool = True,
     json_path: str | None = None,
     audio_path: str | None = None,

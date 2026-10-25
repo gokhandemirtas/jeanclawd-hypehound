@@ -111,33 +111,36 @@ async def synthesize_script(script: PodcastScript, output_path: Path) -> Path:
     """
     Render a PodcastScript to an M4A audio file using voicebox.
 
-    Each PodcastSegment is a self-contained 1–2 minute chunk synthesized
-    independently, then joined with a short silence gap.
+    Segment WAVs are written to <output_stem>_segments/ alongside the output
+    file so they persist across runs. Already-synthesized segments are skipped,
+    allowing resume after a crash.
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_dir = Path(tmp)
-        segment_paths: list[Path] = []
+    segments_dir = output_path.parent / f"{output_path.stem}_segments"
+    segments_dir.mkdir(exist_ok=True)
 
-        for i, segment in enumerate(script.segments):
-            seg_path = tmp_dir / f"segment_{i:03d}.wav"
-            with step(f"TTS segment {i + 1}/{len(script.segments)}"):
+    segment_paths: list[Path] = []
+    for i, segment in enumerate(script.segments):
+        seg_path = segments_dir / f"segment_{i:03d}.wav"
+        if seg_path.exists():
+            log.info(f"  [dim]TTS segment {i + 1}/{len(script.segments)} already exists — skipping[/dim]")
+        else:
+            with step(f"TTS segment {i + 1}/{len(script.segments)}", show_start=True):
                 await _synthesize_segment(segment, script.mode, seg_path)
-            segment_paths.append(seg_path)
+        segment_paths.append(seg_path)
 
-        # Interleave with 0.6s silence for natural pacing between segments
-        silence_path = tmp_dir / "silence.wav"
-        _write_silence(silence_path)
-        interleaved: list[Path] = []
-        for i, p in enumerate(segment_paths):
-            interleaved.append(p)
-            if i < len(segment_paths) - 1:
-                interleaved.append(silence_path)
+    silence_path = segments_dir / "silence.wav"
+    _write_silence(silence_path)
+    interleaved: list[Path] = []
+    for i, p in enumerate(segment_paths):
+        interleaved.append(p)
+        if i < len(segment_paths) - 1:
+            interleaved.append(silence_path)
 
-        with step("Join and encode audio"):
-            _concat_to(interleaved, output_path)
+    with step("Join and encode audio"):
+        _concat_to(interleaved, output_path)
 
-    log.info(f"Podcast saved → [bold cyan]{output_path}[/bold cyan]")
+    log.info(f"Podcast saved → [bold cyan]{output_path}[/bold cyan]  (segments in {segments_dir})")
     return output_path

@@ -2,6 +2,7 @@ import re
 
 from pydantic_ai import Agent
 
+from .config import settings
 from .inference import get_model
 from .log import log, step
 from .models import Citation, Digest, NarratorMode, PodcastScript, PodcastSegment, ScriptLine
@@ -93,7 +94,7 @@ def _parse_segments(raw: str, mode: NarratorMode) -> list[PodcastSegment]:
         else:
             text = " ".join(ln.strip() for ln in part.splitlines() if ln.strip())
             if text:
-                segments.append(PodcastSegment(lines=[ScriptLine(speaker="NARRATOR", text=text)]))
+                segments.append(PodcastSegment(lines=[ScriptLine(speaker=settings.tts_voice_single, text=text)]))
 
     return segments
 
