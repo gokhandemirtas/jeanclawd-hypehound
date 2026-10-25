@@ -159,19 +159,19 @@ def _stats_markup(width: int = 24) -> str:
     pending = s["pending"]
     pending_style = "bold #facc15" if pending > 0 else "dim"
     lines = [
-        "[bold #22d3ee]STORE[/bold #22d3ee]",
+        "[bold #22d3ee]DB[/bold #22d3ee]",
         sep,
-        f"[dim]emails    [/dim][#22d3ee]{s['emails']}[/#22d3ee]",
-        f"[dim]items     [/dim][#22d3ee]{s['items']}[/#22d3ee]",
-        f"[dim]digested  [/dim][#22d3ee]{s['digested']}[/#22d3ee]",
-        f"[dim]pending   [/dim][{pending_style}]{pending}[/{pending_style}]",
+        f"[dim]newsletters [/dim][#22d3ee]{s['emails']}[/#22d3ee]",
+        f"[dim]news items  [/dim][#22d3ee]{s['items']}[/#22d3ee]",
+        f"[dim]in digest   [/dim][#22d3ee]{s['digested']}[/#22d3ee]",
+        f"[dim]undigested  [/dim][{pending_style}]{pending}[/{pending_style}]",
     ]
     if s["last_ingest"]:
         ts = s["last_ingest"][:16].replace("T", " ")
-        lines.append(f"[dim]last in   {ts}[/dim]")
+        lines.append(f"[dim]last ingest  {ts}[/dim]")
     if s["last_digest"]:
         ts = s["last_digest"][:16].replace("T", " ")
-        lines.append(f"[dim]last dig  {ts}[/dim]")
+        lines.append(f"[dim]last digest  {ts}[/dim]")
     return "\n".join(lines)
 
 
