@@ -287,6 +287,7 @@ class HypeHoundApp(App):
             "[dim]i[/dim] ingest  [dim]d[/dim] digest  [dim]p[/dim] podcast  "
             "[dim]r[/dim] run all  [dim]ctrl+x[/dim] reset  [dim]q[/dim] quit"
         )
+        self.run_worker(self._run_health_checks(), exclusive=False, name="health")
 
     def _right_width(self) -> int:
         try:
@@ -412,6 +413,16 @@ class HypeHoundApp(App):
         if self._confirming_reset and event.key != "ctrl+x":
             self._confirming_reset = False
             log.info("[dim]Reset cancelled.[/dim]")
+
+    async def _run_health_checks(self) -> None:
+        from .health import run_checks
+        log.info("[dim]Running startup health checks…[/dim]")
+        results = await run_checks()
+        for r in results:
+            if r.ok:
+                log.info(f"  [green]✓[/green] [bold]{r.service}[/bold]  {r.detail}")
+            else:
+                log.warning(f"  [red]✗[/red] [bold]{r.service}[/bold]  [red]{r.detail}[/red]")
 
     async def _ingest(self) -> None:
         from .pipeline import run_ingest
