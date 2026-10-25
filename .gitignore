@@ -17,3 +17,6 @@ CLAUDE.md
 *.db
 *.log
 .claude
+digests/
+*.m4a
+*.wav

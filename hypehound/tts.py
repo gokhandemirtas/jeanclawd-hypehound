@@ -58,13 +58,16 @@ async def _synthesize_segment(segment: PodcastSegment, mode: NarratorMode, outpu
     # Dual: group consecutive lines by same speaker into runs
     runs: list[tuple[str, list[str]]] = []
     for line in segment.lines:
-        speaker_key = line.speaker or "ALEX"
+        speaker_key = line.speaker or settings.tts_voice_male.upper()
         if runs and runs[-1][0] == speaker_key:
             runs[-1][1].append(line.text)
         else:
             runs.append((speaker_key, [line.text]))
 
-    voice_map = {"ALEX": settings.tts_voice_male, "SARA": settings.tts_voice_female}
+    voice_map = {
+        settings.tts_voice_male.upper(): settings.tts_voice_male,
+        settings.tts_voice_female.upper(): settings.tts_voice_female,
+    }
 
     if len(runs) == 1:
         segs = [{"text": t} for t in runs[0][1]]
@@ -147,6 +150,12 @@ async def synthesize_script(script: PodcastScript, output_path: Path) -> Path:
     silence_path = segments_dir / "silence.wav"
     _write_silence(silence_path)
     interleaved: list[Path] = []
+    if settings.podcast_intro:
+        intro = Path(settings.podcast_intro)
+        if intro.exists():
+            interleaved.append(intro)
+        else:
+            log.warning(f"podcast_intro not found, skipping: {intro}")
     for i, p in enumerate(segment_paths):
         interleaved.append(p)
         if i < len(segment_paths) - 1:

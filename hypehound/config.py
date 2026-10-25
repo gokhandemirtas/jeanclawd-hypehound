@@ -11,8 +11,9 @@ class Settings(BaseSettings):
     digest_hour: int = 7  # daily digest generation time (local hour)
     voicebox_url: str = "http://localhost:8000"
     tts_voice_single: str = "aiden"   # Qwen3-TTS custom voice name
-    tts_voice_male: str = "aiden"      # ALEX in dual mode
-    tts_voice_female: str = "vivian"   # SARA in dual mode
+    tts_voice_male: str = "aiden"      # AIDEN in dual mode
+    tts_voice_female: str = "vivian"   # VIVIAN in dual mode
+    podcast_intro: str = "intro-v1.m4a"  # prepended as-is to every podcast; set to "" to disable
 
     model_config = {"env_file": ".env"}
 
