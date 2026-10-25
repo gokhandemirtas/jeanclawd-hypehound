@@ -439,11 +439,20 @@ class HypeHoundApp(App):
         await run_digest(start, end, deps=self._make_deps())
 
     async def _podcast(self) -> None:
-        from .models import NarratorMode
+        from .models import Digest, NarratorMode
         from .pipeline import run_podcast
+        from .store import get_latest_digest_content
         end = datetime.now()
         start = end - timedelta(days=1)
-        await run_podcast(start, end, mode=NarratorMode.single, deps=self._make_deps())
+        digest = None
+        raw = get_latest_digest_content()
+        if raw:
+            try:
+                digest = Digest.model_validate_json(raw)
+                log.info("[dim]Resuming from latest stored digest[/dim]")
+            except Exception as exc:
+                log.warning(f"[yellow]Could not load stored digest: {exc} — will re-run digest[/yellow]")
+        await run_podcast(start, end, mode=NarratorMode.single, deps=self._make_deps(), digest=digest)
 
     async def _run_all(self) -> None:
         from .models import NarratorMode
