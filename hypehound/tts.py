@@ -10,6 +10,7 @@ Segments are written as WAVs then joined into a final M4A via ffmpeg.
 
 Requires ffmpeg: brew install ffmpeg
 """
+import asyncio
 import re
 import shutil
 import struct
@@ -88,29 +89,53 @@ async def _synthesize_segment(segment: PodcastSegment, mode: NarratorMode, outpu
 
 # --- ffmpeg helpers ----------------------------------------------------------
 
-def _concat_to(inputs: list[Path], output: Path) -> None:
-    """Concat audio files using the concat filter (handles mixed sample rates / channels)."""
-    if len(inputs) == 1:
-        shutil.copy(inputs[0], output)
-        return
+_FFMPEG_CHUNK = 64  # max inputs per ffmpeg call (well under OS open-file limit)
 
-    ext = output.suffix.lower()
-    codec = ["-c:a", "aac", "-b:a", "64k", "-ac", "1"] if ext == ".m4a" else ["-c:a", "pcm_s16le"]
 
+def _ffmpeg_concat(inputs: list[Path], output: Path, final_encode: bool) -> None:
+    """Single ffmpeg concat call; output is always WAV unless final_encode=True (M4A)."""
+    codec = ["-c:a", "aac", "-b:a", "64k", "-ac", "1", "-movflags", "+faststart"] if final_encode else ["-c:a", "pcm_s16le"]
     input_args = []
     for p in inputs:
         input_args += ["-i", str(p)]
-
     n = len(inputs)
     filter_complex = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[out]"
-
     result = subprocess.run(
         ["ffmpeg", "-y", *input_args, "-filter_complex", filter_complex, "-map", "[out]", *codec, str(output)],
         capture_output=True,
     )
     if result.returncode != 0:
-        stderr = result.stderr.decode(errors="replace")
-        raise RuntimeError(f"ffmpeg failed (exit {result.returncode}):\n{stderr}")
+        raise RuntimeError(f"ffmpeg failed (exit {result.returncode}):\n{result.stderr.decode(errors='replace')}")
+
+
+def _concat_to(inputs: list[Path], output: Path) -> None:
+    """Concat audio files; uses chunked progressive stitching to stay under OS open-file limits."""
+    if len(inputs) == 1:
+        shutil.copy(inputs[0], output)
+        return
+
+    if len(inputs) <= _FFMPEG_CHUNK:
+        _ffmpeg_concat(inputs, output, final_encode=output.suffix.lower() == ".m4a")
+        return
+
+    # Progressive: reduce in chunks of _FFMPEG_CHUNK until one file remains
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        current = list(inputs)
+        pass_num = 0
+        while len(current) > _FFMPEG_CHUNK:
+            next_pass: list[Path] = []
+            for chunk_idx in range(0, len(current), _FFMPEG_CHUNK):
+                chunk = current[chunk_idx: chunk_idx + _FFMPEG_CHUNK]
+                if len(chunk) == 1:
+                    next_pass.append(chunk[0])
+                    continue
+                merged = tmp_dir / f"pass{pass_num}_{chunk_idx:04d}.wav"
+                _ffmpeg_concat(chunk, merged, final_encode=False)
+                next_pass.append(merged)
+            current = next_pass
+            pass_num += 1
+        _ffmpeg_concat(current, output, final_encode=output.suffix.lower() == ".m4a")
 
 
 # --- Public API --------------------------------------------------------------
@@ -162,7 +187,7 @@ async def synthesize_script(script: PodcastScript, output_path: Path) -> Path:
             interleaved.append(silence_path)
 
     with step("Join and encode audio"):
-        _concat_to(interleaved, output_path)
+        await asyncio.get_event_loop().run_in_executor(None, _concat_to, interleaved, output_path)
 
     log.info(f"Podcast saved → [bold cyan]{output_path}[/bold cyan]  (segments in {segments_dir})")
     return output_path

@@ -216,18 +216,24 @@ class GeneratePodcast(BaseNode[PipelineState, PipelineDeps]):
                 ctx.deps.on_node_error("GeneratePodcast")
                 return End(ctx.state)
 
-            script = await generate_podcast_script(ctx.state.digest, ctx.state.podcast_mode)
-            ctx.state.podcast_script = script
-
             stem = ctx.state.period_end.strftime("%Y-%m-%d")
-            out = (
-                Path(ctx.state.podcast_json_path)
-                if ctx.state.podcast_json_path
-                else _versioned_path("podcast", stem, ".json")
-            )
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text(script.model_dump_json(indent=2))
-            log.info(f"Script saved → [bold cyan]{out}[/bold cyan]")
+            explicit_json = Path(ctx.state.podcast_json_path) if ctx.state.podcast_json_path else None
+            base_json = Path("podcast") / f"{stem}.json"
+
+            # Re-use an existing script (explicit path or base path) to preserve segment cache
+            existing_json = explicit_json if (explicit_json and explicit_json.exists()) else (base_json if base_json.exists() else None)
+            if existing_json:
+                log.info(f"Loading existing script → [bold cyan]{existing_json}[/bold cyan]")
+                script = PodcastScript.model_validate_json(existing_json.read_text())
+                out = existing_json
+            else:
+                script = await generate_podcast_script(ctx.state.digest, ctx.state.podcast_mode)
+                out = explicit_json or _versioned_path("podcast", stem, ".json")
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(script.model_dump_json(indent=2))
+                log.info(f"Script saved → [bold cyan]{out}[/bold cyan]")
+
+            ctx.state.podcast_script = script
 
             if ctx.state.podcast_tts:
                 from .tts import synthesize_script

@@ -1,6 +1,7 @@
 import logging
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import psutil
 from textual.app import App, ComposeResult
@@ -175,6 +176,57 @@ def _stats_markup(width: int = 24) -> str:
     return "\n".join(lines)
 
 
+def _artifacts_markup(width: int = 24) -> str:
+    sep = f"[dim]{'─' * width}[/dim]"
+    lines = ["[bold #22d3ee]PODCAST[/bold #22d3ee]", sep]
+
+    podcast_dir = Path("podcast")
+    if not podcast_dir.exists():
+        lines.append("[dim]no artifacts yet[/dim]")
+        return "\n".join(lines)
+
+    json_files = sorted(podcast_dir.glob("*.json"), reverse=True)
+    m4a_files = sorted(podcast_dir.glob("*.m4a"), reverse=True)
+    seg_dirs = sorted(podcast_dir.glob("*_segments"), reverse=True)
+
+    label_w = 12
+    val_w = max(4, width - label_w)
+
+    def row(label: str, val: str, style: str = "#22d3ee") -> str:
+        if len(val) > val_w:
+            val = val[:val_w - 1] + "…"
+        return f"[dim]{label:<{label_w}}[/dim][{style}]{val}[/{style}]"
+
+    latest_json = json_files[0] if json_files else None
+    latest_m4a = m4a_files[0] if m4a_files else None
+    latest_seg_dir = seg_dirs[0] if seg_dirs else None
+
+    if latest_json:
+        lines.append(row("script", latest_json.name))
+    else:
+        lines.append(row("script", "none", "dim"))
+
+    if latest_m4a:
+        lines.append(row("audio", latest_m4a.name))
+    else:
+        lines.append(row("audio", "none", "dim"))
+
+    if latest_seg_dir:
+        wav_count = len(list(latest_seg_dir.glob("segment_*.wav")))
+        date_stem = latest_seg_dir.name.replace("_segments", "")
+        matching_m4a = (podcast_dir / f"{date_stem}.m4a").exists()
+        if not matching_m4a:
+            lines.append(row("wav segs", str(wav_count), "#facc15"))
+            lines.append(row("stitched", "no — audio missing", "#facc15"))
+        else:
+            lines.append(row("wav segs", str(wav_count)))
+            lines.append(row("stitched", "yes", "#4ade80"))
+    else:
+        lines.append(row("wav segs", "none", "dim"))
+
+    return "\n".join(lines)
+
+
 # --- App ---------------------------------------------------------------------
 
 class HypeHoundApp(App):
@@ -220,7 +272,7 @@ class HypeHoundApp(App):
         height: auto;
         padding: 1 2;
     }
-    #model-panel, #resource-panel, #pipeline-panel, #stats-panel {
+    #model-panel, #resource-panel, #pipeline-panel, #stats-panel, #artifacts-panel {
         width: 100%;
         height: auto;
         padding: 0 0 1 0;
@@ -264,6 +316,7 @@ class HypeHoundApp(App):
                     yield Static("", id="resource-panel", markup=True)
                     yield Static("", id="pipeline-panel", markup=True)
                     yield Static("", id="stats-panel", markup=True)
+                    yield Static("", id="artifacts-panel", markup=True)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -277,6 +330,7 @@ class HypeHoundApp(App):
         self.set_interval(1.0, self._refresh_resources)
         self.set_interval(1.0, self._refresh_model)
         self.set_interval(1.0, self._refresh_stats)
+        self.set_interval(5.0, self._refresh_artifacts)
         self.set_interval(0.2, self._refresh_pipeline)
         self.set_interval(0.1, self._tick_spinner)
 
@@ -284,9 +338,10 @@ class HypeHoundApp(App):
         self.call_after_refresh(self._refresh_resources)
         self.call_after_refresh(self._refresh_pipeline)
         self.call_after_refresh(self._refresh_stats)
+        self.call_after_refresh(self._refresh_artifacts)
 
         log.info(
-            "[bold #22d3ee]HypeHound ready.[/bold #22d3ee]  "
+            "[bold #22d3ee]🐕 HypeHound ready for action![/bold #22d3ee]  "
             "[dim]i[/dim] ingest  [dim]d[/dim] digest  [dim]p[/dim] podcast  "
             "[dim]r[/dim] run all  [dim]ctrl+x[/dim] reset  [dim]q[/dim] quit"
         )
@@ -340,6 +395,12 @@ class HypeHoundApp(App):
     def _refresh_stats(self) -> None:
         try:
             self.query_one("#stats-panel", Static).update(_stats_markup(self._right_width()))
+        except Exception:
+            pass
+
+    def _refresh_artifacts(self) -> None:
+        try:
+            self.query_one("#artifacts-panel", Static).update(_artifacts_markup(self._right_width()))
         except Exception:
             pass
 
@@ -444,14 +505,35 @@ class HypeHoundApp(App):
         from .store import get_latest_digest_content
         end = datetime.now()
         start = end - timedelta(days=1)
+        stem = end.strftime("%Y-%m-%d")
+        podcast_dir = Path("podcast")
+
         digest = None
         raw = get_latest_digest_content()
         if raw:
             try:
                 digest = Digest.model_validate_json(raw)
-                log.info("[dim]Resuming from latest stored digest[/dim]")
+                log.info("[dim]Digest loaded from DB — skipping digest step[/dim]")
             except Exception as exc:
                 log.warning(f"[yellow]Could not load stored digest: {exc} — will re-run digest[/yellow]")
+
+        script_path = podcast_dir / f"{stem}.json"
+        m4a_path = podcast_dir / f"{stem}.m4a"
+        seg_dir = podcast_dir / f"{stem}_segments"
+        wav_count = len(list(seg_dir.glob("segment_*.wav"))) if seg_dir.exists() else 0
+
+        if m4a_path.exists():
+            log.info(f"[dim]Audio already exists: [bold]{m4a_path.name}[/bold] — nothing to do[/dim]")
+        elif wav_count and script_path.exists():
+            log.info(
+                f"[yellow]Script exists ({script_path.name}) with {wav_count} wav segment(s) "
+                f"but no audio — will resume TTS and stitch[/yellow]"
+            )
+        elif script_path.exists():
+            log.info(f"[dim]Script exists ({script_path.name}) — will synthesise audio from scratch[/dim]")
+        else:
+            log.info("[dim]No script found — will generate script then synthesise audio[/dim]")
+
         await run_podcast(start, end, mode=NarratorMode.dual, deps=self._make_deps(), digest=digest)
 
     async def _run_all(self) -> None:
@@ -472,6 +554,7 @@ class HypeHoundApp(App):
             self._pipeline_current = "idle"
             self._refresh_pipeline()
             self._refresh_stats()
+            self._refresh_artifacts()
 
 
 def launch() -> None:
