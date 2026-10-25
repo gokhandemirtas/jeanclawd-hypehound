@@ -169,7 +169,7 @@ class Store(BaseNode[PipelineState, PipelineDeps]):
 @dataclass
 class BuildDigest(BaseNode[PipelineState, PipelineDeps]):
     async def run(self, ctx: GraphRunContext[PipelineState, PipelineDeps]) -> End[PipelineState]:
-        ctx.deps.on_node_start("BuildDigest")
+        ctx.deps.on_node_start("Digest")
         try:
             ctx.state.digest = await generate_digest(ctx.state.period_start, ctx.state.period_end)
 
@@ -178,17 +178,17 @@ class BuildDigest(BaseNode[PipelineState, PipelineDeps]):
             for entry in digest.entries:
                 log.info(f"  [cyan]{entry.category}[/cyan] — {len(entry.items)} item(s)")
 
-            ctx.deps.on_node_done("BuildDigest")
+            ctx.deps.on_node_done("Digest")
             return End(ctx.state)
         except ValueError as exc:
             if "No undigested items" in str(exc):
                 log.info("[dim]No undigested items in period — skipping digest[/dim]")
-                ctx.deps.on_node_done("BuildDigest")
+                ctx.deps.on_node_done("Digest")
                 return End(ctx.state)
-            ctx.deps.on_node_error("BuildDigest")
+            ctx.deps.on_node_error("Digest")
             raise
         except Exception:
-            ctx.deps.on_node_error("BuildDigest")
+            ctx.deps.on_node_error("Digest")
             raise
 
 
@@ -298,7 +298,7 @@ digest_graph = _build_digest_graph()
 podcast_graph = _build_podcast_graph()
 
 INGEST_NODES = ["Fetch", "Classify"]
-DIGEST_NODES = ["BuildDigest"]
+DIGEST_NODES = ["Digest"]
 PODCAST_NODES = ["GeneratePodcast"]
 
 

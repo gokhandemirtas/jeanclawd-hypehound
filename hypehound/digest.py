@@ -102,11 +102,8 @@ async def generate_digest(period_start: datetime, period_end: datetime) -> Diges
         item_ids = [item["id"] for item in items]
         save_digest_items(digest_id, item_ids)
 
-        try:
-            usage = result.usage()
-            tok = f"  [dim]{usage.total_tokens} tok[/dim]" if usage.total_tokens else ""
-        except Exception:
-            tok = ""
+        usage = result.usage
+        tok = f"  [dim]{usage.total_tokens} tok[/dim]" if usage.total_tokens else ""
         log.info(f"  {cat}: [green]{len(result.output.items)} item(s)[/green]{tok}")
 
         digest_so_far = Digest(period_start=period_start, period_end=period_end, entries=entries)
