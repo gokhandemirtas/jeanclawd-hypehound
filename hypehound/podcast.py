@@ -28,34 +28,37 @@ Output — start immediately with [SEGMENT], no preamble:
 <next segment>
 """
 
-_DUAL_SYSTEM = """\
-You are a tech podcast scriptwriter for two hosts: Alex (male) and Sara (female).
+def _dual_system() -> str:
+    male = settings.tts_voice_male.capitalize()
+    female = settings.tts_voice_female.capitalize()
+    return f"""\
+You are a tech podcast scriptwriter for two hosts: {male} (male) and {female} (female).
 
 Rules:
 - Total length: 12–18 minutes (approx 1800–2600 words)
 - Divide into self-contained 2–3 minute segments using [SEGMENT] on its own line
-- Every spoken line must begin with [ALEX]: or [SARA]:
+- Every spoken line must begin with [{male.upper()}]: or [{female.upper()}]:
 - Each speaker's turn should be a full paragraph (3–6 sentences). Avoid one-liners.
-  Good: [ALEX]: <three sentences covering the topic fully>
-        [SARA]: <three sentences reacting and adding context>
-  Bad:  [ALEX]: Interesting. [SARA]: Yeah. [ALEX]: So anyway...
+  Good: [{male.upper()}]: <three sentences covering the topic fully>
+        [{female.upper()}]: <three sentences reacting and adding context>
+  Bad:  [{male.upper()}]: Interesting. [{female.upper()}]: Yeah. [{male.upper()}]: So anyway...
 - They build on each other's paragraphs, not just acknowledge them
 - Cover every item from the digest — do not skip or merge stories
 - For each item: introduce it, explain what it means, and add commentary or reaction
 - Plain spoken language — no URLs read aloud
-- Alex opens every show with a greeting that introduces both hosts by name and sets up the episode.
-  Vary the wording each time but always include: the show name (HypeHound), Alex introducing himself,
-  mentioning Vivian as co-host, and a one-line preview of what's in the episode.
+- {male} opens every show with a greeting that introduces both hosts by name and sets up the episode.
+  Vary the wording each time but always include: the show name (HypeHound), {male} introducing himself,
+  mentioning {female} as co-host, and a one-line preview of what's in the episode.
   Example variations (do not copy verbatim):
-    "Welcome to HypeHound, I'm Alex and I have Vivian with me today. Here's what's been happening..."
-    "Hey, welcome back to HypeHound. I'm Alex, joined as always by Vivian. A packed episode today..."
-    "This is HypeHound, I'm Alex. Vivian's here too — let's get into it. Lots to cover this week..."
-- Sara closes with a sign-off that thanks the listener and teases next time
+    "Welcome to HypeHound, I'm {male} and I have {female} with me today. Here's what's been happening..."
+    "Hey, welcome back to HypeHound. I'm {male}, joined as always by {female}. A packed episode today..."
+    "This is HypeHound, I'm {male}. {female}'s here too — let's get into it. Lots to cover this week..."
+- {female} closes with a sign-off that thanks the listener and teases next time
 
 Output — start immediately with [SEGMENT], no preamble:
 [SEGMENT]
-[ALEX]: <greeting introducing both hosts and previewing the episode>
-[SARA]: ...
+[{male.upper()}]: <greeting introducing both hosts and previewing the episode>
+[{female.upper()}]: ...
 
 [SEGMENT]
 ...
@@ -69,7 +72,7 @@ _single_agent: Agent[None, str] = Agent(
 _dual_agent: Agent[None, str] = Agent(
     get_model(),
     output_type=str,
-    system_prompt=_DUAL_SYSTEM,
+    system_prompt=_dual_system(),
 )
 
 
@@ -84,12 +87,14 @@ def _parse_segments(raw: str, mode: NarratorMode) -> list[PodcastSegment]:
             continue
 
         if mode == NarratorMode.dual:
+            male = settings.tts_voice_male.upper()
+            female = settings.tts_voice_female.upper()
             lines: list[ScriptLine] = []
             for raw_line in part.splitlines():
                 raw_line = raw_line.strip()
                 if not raw_line:
                     continue
-                m = re.match(r"\[(ALEX|SARA)\]:\s*(.*)", raw_line, re.IGNORECASE)
+                m = re.match(rf"\[({male}|{female})\]:\s*(.*)", raw_line, re.IGNORECASE)
                 if m:
                     lines.append(ScriptLine(speaker=m.group(1).upper(), text=m.group(2).strip()))
                 elif lines:
