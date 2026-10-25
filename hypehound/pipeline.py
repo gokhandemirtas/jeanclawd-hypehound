@@ -236,7 +236,10 @@ class GeneratePodcast(BaseNode[PipelineState, PipelineDeps]):
                     if ctx.state.podcast_audio_path
                     else _versioned_path("podcast", stem, ".m4a")
                 )
+                log.info(f"Starting TTS synthesis → [bold cyan]{audio_out}[/bold cyan]  ({len(script.segments)} segment(s))")
                 await synthesize_script(script, audio_out)
+            else:
+                log.info("[dim]TTS disabled — script only[/dim]")
 
             ctx.deps.on_node_done("GeneratePodcast")
             return End(ctx.state)
@@ -318,9 +321,9 @@ async def run_podcast(
     period_start: datetime,
     period_end: datetime,
     mode: NarratorMode = NarratorMode.single,
-    tts: bool = False,
-    json_path: str = "podcast.json",
-    audio_path: str = "podcast.m4a",
+    tts: bool = True,
+    json_path: str | None = None,
+    audio_path: str | None = None,
     deps: PipelineDeps | None = None,
     digest: "Digest | None" = None,
 ) -> PipelineState:
