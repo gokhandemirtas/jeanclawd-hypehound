@@ -43,11 +43,18 @@ Rules:
 - Cover every item from the digest — do not skip or merge stories
 - For each item: introduce it, explain what it means, and add commentary or reaction
 - Plain spoken language — no URLs read aloud
-- Alex opens the show; Sara closes with a sign-off sentence
+- Alex opens every show with a greeting that introduces both hosts by name and sets up the episode.
+  Vary the wording each time but always include: the show name (HypeHound), Alex introducing himself,
+  mentioning Vivian as co-host, and a one-line preview of what's in the episode.
+  Example variations (do not copy verbatim):
+    "Welcome to HypeHound, I'm Alex and I have Vivian with me today. Here's what's been happening..."
+    "Hey, welcome back to HypeHound. I'm Alex, joined as always by Vivian. A packed episode today..."
+    "This is HypeHound, I'm Alex. Vivian's here too — let's get into it. Lots to cover this week..."
+- Sara closes with a sign-off that thanks the listener and teases next time
 
 Output — start immediately with [SEGMENT], no preamble:
 [SEGMENT]
-[ALEX]: Welcome to HypeHound...
+[ALEX]: <greeting introducing both hosts and previewing the episode>
 [SARA]: ...
 
 [SEGMENT]
