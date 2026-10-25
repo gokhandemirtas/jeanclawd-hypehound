@@ -10,6 +10,7 @@ Segments are written as WAVs then joined into a final M4A via ffmpeg.
 
 Requires ffmpeg: brew install ffmpeg
 """
+import re
 import shutil
 import struct
 import subprocess
@@ -122,19 +123,27 @@ async def synthesize_script(script: PodcastScript, output_path: Path) -> Path:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    segments_dir = output_path.parent / f"{output_path.stem}_segments"
+    # Strip _vN suffix so all versions share the same segments directory
+    base_stem = re.sub(r"_v\d+$", "", output_path.stem)
+    segments_dir = output_path.parent / f"{base_stem}_segments"
     segments_dir.mkdir(exist_ok=True)
 
+    n_total = len(script.segments)
     segment_paths: list[Path] = []
+    skipped = 0
     for i, segment in enumerate(script.segments):
         seg_path = segments_dir / f"segment_{i:03d}.wav"
         if seg_path.exists():
-            log.info(f"  [dim]TTS segment {i + 1}/{len(script.segments)} already exists — skipping[/dim]")
+            skipped += 1
         else:
-            with step(f"TTS segment {i + 1}/{len(script.segments)}", show_start=True):
+            with step(f"TTS segment {i + 1}/{n_total}", show_start=True):
                 await _synthesize_segment(segment, script.mode, seg_path)
         segment_paths.append(seg_path)
 
+    if skipped:
+        log.info(f"[dim]Skipped {skipped}/{n_total} already-synthesized segment(s)[/dim]")
+
+    log.info(f"Stitching {n_total} segment(s) → [bold cyan]{output_path}[/bold cyan]")
     silence_path = segments_dir / "silence.wav"
     _write_silence(silence_path)
     interleaved: list[Path] = []
