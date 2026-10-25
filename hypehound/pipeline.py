@@ -297,7 +297,7 @@ ingest_graph = _build_ingest_graph()
 digest_graph = _build_digest_graph()
 podcast_graph = _build_podcast_graph()
 
-INGEST_NODES = ["Fetch", "Classify", "Store"]
+INGEST_NODES = ["Fetch", "Classify"]
 DIGEST_NODES = ["BuildDigest"]
 PODCAST_NODES = ["GeneratePodcast"]
 

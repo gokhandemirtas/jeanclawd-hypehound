@@ -101,6 +101,7 @@ def _pipeline_markup(
     width: int = 24,
     progress: tuple[int, int] | None = None,
     node_labels: dict[str, str] | None = None,
+    current_start: float = 0.0,
 ) -> str:
     if not nodes:
         return "[bold #22d3ee]PIPELINE[/bold #22d3ee]  [dim]idle[/dim]"
@@ -129,14 +130,16 @@ def _pipeline_markup(
 
         suffix = f" {node_labels[name]}" if node_labels and name in node_labels else ""
         label = f"{icon} {name}{suffix}"
-        if name in node_times:
+        if is_current and not is_error:
+            live = time.monotonic() - current_start
+            dur = f"{live:.1f}s" if live < 10 else f"{live:.0f}s"
+            pad = max(1, width - len(label) - len(dur))
+            lines.append(f"[{style}]{label}[/{style}][dim]{' ' * pad}{dur}[/dim]")
+        elif name in node_times:
             elapsed = node_times[name]
             dur = f"{elapsed:.1f}s" if elapsed < 10 else f"{elapsed:.0f}s"
             pad = max(1, width - len(label) - len(dur))
             lines.append(f"[{style}]{label}[/{style}][dim]{' ' * pad}{dur}[/dim]")
-        elif is_current and not is_error:
-            pad = max(1, width - len(label) - 1)
-            lines.append(f"[{style}]{label}[/{style}][dim]{' ' * pad}…[/dim]")
         else:
             lines.append(f"[{style}]{label}[/{style}]")
 
@@ -328,6 +331,7 @@ class HypeHoundApp(App):
                     self._right_width(),
                     self._pipeline_progress,
                     self._node_labels,
+                    self._node_start_time,
                 )
             )
         except Exception:
