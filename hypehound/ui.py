@@ -99,6 +99,8 @@ def _pipeline_markup(
     node_times: dict[str, float],
     spinner_frame: int,
     width: int = 24,
+    progress: tuple[int, int] | None = None,
+    node_labels: dict[str, str] | None = None,
 ) -> str:
     if not nodes:
         return "[bold #22d3ee]PIPELINE[/bold #22d3ee]  [dim]idle[/dim]"
@@ -106,6 +108,10 @@ def _pipeline_markup(
     exec_indicator = "  [bold #facc15]● EXEC[/bold #facc15]" if current != "idle" else ""
     sep = f"[dim]{'─' * width}[/dim]"
     lines = [f"[bold #22d3ee]{title.upper()}[/bold #22d3ee]{exec_indicator}", sep]
+    if progress is not None:
+        done, total = progress
+        pad = max(1, width - len(f"{done} / {total}"))
+        lines.append(f"[dim]{' ' * pad}{done} / {total}[/dim]")
 
     for i, name in enumerate(nodes):
         is_current = name == current
@@ -121,7 +127,8 @@ def _pipeline_markup(
         else:
             icon, style = "○", "dim"
 
-        label = f"{icon} {name}"
+        suffix = f" {node_labels[name]}" if node_labels and name in node_labels else ""
+        label = f"{icon} {name}{suffix}"
         if name in node_times:
             elapsed = node_times[name]
             dur = f"{elapsed:.1f}s" if elapsed < 10 else f"{elapsed:.0f}s"
@@ -238,8 +245,10 @@ class HypeHoundApp(App):
         self._pipeline_error = False
         self._node_times: dict[str, float] = {}
         self._node_start_time: float = 0.0
+        self._pipeline_progress: tuple[int, int] | None = None
         self._spinner_frame = 0
         self._confirming_reset = False
+        self._node_labels: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -316,6 +325,8 @@ class HypeHoundApp(App):
                     self._node_times,
                     self._spinner_frame,
                     self._right_width(),
+                    self._pipeline_progress,
+                    self._node_labels,
                 )
             )
         except Exception:
@@ -351,13 +362,20 @@ class HypeHoundApp(App):
         self._pipeline_completed = set()
         self._pipeline_error = False
         self._node_times = {}
+        self._pipeline_progress = None
+        self._node_labels = {}
         self._spinner_frame = 0
+
+    def _on_progress(self, done: int, total: int) -> None:
+        self._pipeline_progress = (done, total)
+        self._node_labels["Fetch"] = f"({total})"
 
     def _make_deps(self) -> PipelineDeps:
         return PipelineDeps(
             on_node_start=self._node_start,
             on_node_done=self._node_done,
             on_node_error=self._node_error,
+            on_progress=self._on_progress,
         )
 
     # --- Actions -------------------------------------------------------------

@@ -22,6 +22,7 @@ class PipelineDeps:
     on_node_start: Callable[[str], None] = field(default_factory=lambda: lambda _: None)
     on_node_done: Callable[[str], None] = field(default_factory=lambda: lambda _: None)
     on_node_error: Callable[[str], None] = field(default_factory=lambda: lambda _: None)
+    on_progress: Callable[[int, int], None] = field(default_factory=lambda: lambda _a, _b: None)
 
 
 # --- State -------------------------------------------------------------------
@@ -31,6 +32,7 @@ class PipelineState(BaseModel):
     raw_emails: list[dict] = Field(default_factory=list)
     current_email: dict | None = None
     current_email_id: int | None = None
+    total_emails: int = 0
     processed_count: int = 0
     failed_count: int = 0
 
@@ -59,6 +61,8 @@ class Fetch(BaseNode[PipelineState, PipelineDeps]):
             with step("Fetch emails from Resend"):
                 ctx.state.raw_emails = await fetch_new_emails()
             count = len(ctx.state.raw_emails)
+            ctx.state.total_emails = count
+            ctx.deps.on_progress(0, count)
             log.info(f"Found [bold]{count}[/bold] new email(s)")
             ctx.deps.on_node_done("Fetch")
             if not count:
@@ -83,6 +87,8 @@ class Pick(BaseNode[PipelineState, PipelineDeps]):
             return End(ctx.state)
 
         ctx.state.current_email = ctx.state.raw_emails.pop(0)
+        done = ctx.state.processed_count + ctx.state.failed_count + 1
+        ctx.deps.on_progress(done, ctx.state.total_emails)
         ctx.deps.on_node_done("Pick")
         return Save()
 
@@ -291,7 +297,7 @@ ingest_graph = _build_ingest_graph()
 digest_graph = _build_digest_graph()
 podcast_graph = _build_podcast_graph()
 
-INGEST_NODES = ["Fetch", "Pick", "Save", "Classify", "Store"]
+INGEST_NODES = ["Fetch", "Classify", "Store"]
 DIGEST_NODES = ["BuildDigest"]
 PODCAST_NODES = ["GeneratePodcast"]
 
