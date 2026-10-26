@@ -12,7 +12,6 @@ it reflects actual audio durations rather than word-count estimates.
 import html
 import json
 import re
-import shutil
 import subprocess
 import wave
 from datetime import datetime
@@ -21,6 +20,8 @@ from pathlib import Path
 from .config import settings
 from .log import log, step
 from .models import Digest, NarratorMode, PodcastScript
+
+_GITHUB_RELEASE_FALLBACK = "episode.m4a"
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +48,54 @@ def _media_duration_s(path: Path) -> float:
     if result.returncode != 0 or not result.stdout.strip():
         return 0.0
     return float(result.stdout.strip())
+
+
+# ---------------------------------------------------------------------------
+# GitHub release upload
+# ---------------------------------------------------------------------------
+
+def _upload_to_github_release(audio_path: Path, stem: str) -> str:
+    """
+    Upload audio to a per-episode GitHub release and return the download URL.
+    Falls back to the relative path "episode.m4a" if gh is unavailable or fails.
+    """
+    tag = f"episode-{stem}"
+
+    # Resolve repo slug from remote
+    repo_result = subprocess.run(
+        ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+        capture_output=True, text=True,
+    )
+    if repo_result.returncode != 0:
+        log.warning("[yellow]gh not available — skipping GitHub release upload[/yellow]")
+        return _GITHUB_RELEASE_FALLBACK
+
+    repo = repo_result.stdout.strip()
+
+    # Create release (idempotent — ignore error if tag already exists)
+    subprocess.run(
+        [
+            "gh", "release", "create", tag,
+            "--repo", repo,
+            "--title", f"Episode {stem}",
+            "--notes", f"Audio for HypeHound episode {stem}",
+        ],
+        capture_output=True, text=True,
+    )
+
+    # Upload (--clobber replaces existing asset with same name)
+    upload = subprocess.run(
+        ["gh", "release", "upload", tag, str(audio_path),
+         "--repo", repo, "--clobber"],
+        capture_output=True, text=True,
+    )
+    if upload.returncode != 0:
+        log.warning(f"[yellow]GitHub release upload failed: {upload.stderr.strip()}[/yellow]")
+        return _GITHUB_RELEASE_FALLBACK
+
+    url = f"https://github.com/{repo}/releases/download/{tag}/{audio_path.name}"
+    log.info(f"[green]Audio uploaded[/green] → [bold cyan]{url}[/bold cyan]")
+    return url
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +199,7 @@ def _render_html(
     digest: Digest,
     timing: list[dict],
     sources: list[dict],
+    audio_url: str = "episode.m4a",
 ) -> str:
     timing_by_idx = {t["idx"]: t for t in timing}
 
@@ -376,7 +426,7 @@ def _render_html(
 <body class="min-h-screen bg-[#131318] text-[#e4e1e9] selection:bg-[#00ff66] selection:text-black">
 
   <audio id="player" preload="metadata" class="hidden">
-    <source src="episode.m4a" type="audio/mp4">
+    <source src="{_h(audio_url)}" type="audio/mp4">
   </audio>
 
   <div class="fixed inset-0 crt-overlay z-50 pointer-events-none"></div>
@@ -486,7 +536,7 @@ def _render_html(
             <div class="flex items-center space-x-2">
               <span class="text-[10px] text-[#555a6d]">FORMAT:</span>
               <span class="text-[10px] bg-[#101016] px-1.5 py-0.5 border border-[#292937] text-[#00ff66]">M4A (AAC)</span>
-              <a href="episode.m4a" download class="text-[10px] text-[#8e95a5] hover:text-white underline ml-1">[DOWNLOAD]</a>
+              <a href="{_h(audio_url)}" download class="text-[10px] text-[#8e95a5] hover:text-white underline ml-1">[DOWNLOAD]</a>
             </div>
           </div>
         </div>
@@ -626,16 +676,15 @@ def publish_episode(
         total_lines = sum(len(s.lines) for s in script.segments)
         log.info(f"Timing: {len(timing)}/{total_lines} line(s) mapped across {len(script.segments)} segments")
 
-    with step("Copy audio"):
-        dest_audio = episode_dir / "episode.m4a"
-        shutil.copy2(audio_path, dest_audio)
+    with step("Upload audio to GitHub release"):
+        audio_url = _upload_to_github_release(audio_path, stem)
 
     sources = [dict(r) for r in get_emails_in_period(period_start, period_end)]
 
     total_items = sum(len(e.items) for e in digest.entries)
 
     with step("Render HTML"):
-        page_html = _render_html(script, digest, timing, sources)
+        page_html = _render_html(script, digest, timing, sources, audio_url=audio_url)
         out_html = episode_dir / "index.html"
         out_html.write_text(page_html, encoding="utf-8")
 
