@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings
 
+from .models import ContentDensity
+
 
 class Settings(BaseSettings):
     resend_api_key: str
@@ -14,6 +16,11 @@ class Settings(BaseSettings):
     tts_voice_male: str = "aiden"      # AIDEN in dual mode
     tts_voice_female: str = "vivian"   # VIVIAN in dual mode
     podcast_intro: str = "intro-v1.m4a"  # prepended as-is to every podcast; set to "" to disable
+    content_density: ContentDensity = ContentDensity.standard
+    cloudflare_api_token: str = ""
+    cloudflare_account_id: str = ""
+    cloudflare_pages_project: str = "hypehound-web"
+    publish_owner_email: str = ""  # redacted from the sources panel on published episodes
 
     model_config = {"env_file": ".env"}
 

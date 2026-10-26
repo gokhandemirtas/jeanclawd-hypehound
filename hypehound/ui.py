@@ -585,7 +585,7 @@ class HypeHoundApp(App):
 
     def action_run_publish(self) -> None:
         log.info("[bold #22d3ee]Publishing episode…[/bold #22d3ee]")
-        self._reset_pipeline("Publish", ["Publish"])
+        self._reset_pipeline("Publish", ["Publish", "Deploy"])
         self.run_worker(self._publish(), exclusive=True, name="publish")
 
     def action_run_all(self) -> None:
@@ -729,7 +729,18 @@ class HypeHoundApp(App):
         period_start = period_end - timedelta(days=7)
 
         log.info(f"[dim]Publishing episode from [bold]{audio_path.name}[/bold][/dim]")
+        self._node_start("Publish")
         publish_episode(script, digest, audio_path, period_start, period_end)
+        self._node_done("Publish")
+
+        self._node_start("Deploy")
+        try:
+            from .publish import deploy_web
+            deploy_web()
+            self._node_done("Deploy")
+        except Exception as exc:
+            self._node_error("Deploy")
+            log.error(f"[red]Deploy failed: {exc}[/red]")
 
     async def _run_all(self, density: ContentDensity, quality: AudioQuality = AudioQuality.high) -> None:
         from .models import NarratorMode
@@ -740,7 +751,7 @@ class HypeHoundApp(App):
         start = end - timedelta(days=1)
         digest_state = await run_digest(start, end, density=density, deps=deps)
         if digest_state.digest is not None:
-            await run_podcast(start, end, mode=NarratorMode.dual, density=density, quality=quality, deps=deps, digest=digest_state.digest, publish=True)
+            await run_podcast(start, end, mode=NarratorMode.dual, density=density, quality=quality, deps=deps, digest=digest_state.digest, publish=True, deploy=True)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.state == WorkerState.ERROR:

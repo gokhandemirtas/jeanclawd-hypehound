@@ -20,6 +20,7 @@ def _parse_args():
     parser.add_argument("--tts", action="store_true", help="Synthesize audio after script generation")
     parser.add_argument("--out", default=None, help="Podcast script output path (default: podcast/YYYY-MM-DD.json)")
     parser.add_argument("--audio-out", default=None, help="Podcast audio output path (default: podcast/YYYY-MM-DD.m4a)")
+    parser.add_argument("--publish", action="store_true", help="Deploy web/ to Cloudflare Pages after episode publish")
     parser.add_argument("--days", type=int, default=1, help="Digest look-back window in days (default: 1)")
     return parser.parse_args()
 
@@ -41,6 +42,8 @@ async def _run_headless(args) -> None:
             tts=args.tts,
             json_path=args.out,
             audio_path=args.audio_out,
+            publish=args.publish,
+            deploy=args.publish,
         )
         return
 
@@ -58,6 +61,8 @@ async def _run_headless(args) -> None:
             tts=args.tts,
             json_path=args.out,
             audio_path=args.audio_out,
+            publish=args.publish,
+            deploy=args.publish,
         )
 
 
@@ -70,7 +75,7 @@ if __name__ == "__main__":
 
     init_db()
 
-    headless = args.ingest or args.digest or args.podcast or args.run_all
+    headless = args.ingest or args.digest or args.podcast or args.run_all or args.publish
     if headless:
         asyncio.run(_run_headless(args))
         sys.exit(0)

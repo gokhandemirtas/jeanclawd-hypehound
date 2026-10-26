@@ -41,7 +41,7 @@ const sorted = [...episodes].sort((a, b) => b.date.localeCompare(a.date));
     <!-- HOW IT WORKS -->
     <div class="mb-8 text-sm text-[#b9ccb5] font-mono leading-relaxed max-w-3xl">
       <p>
-        HypeHound polls a Resend-managed mailbox, strips newsletter HTML to plain text, then classifies each ~600-word chunk with a local LLM — one structured PydanticAI call per chunk, output validated against a Pydantic schema — and stores the extracted items in SQLite. A second pass groups items by category and writes a clean digest; a third turns the digest into a narrated dual-host script, synthesised locally via Voicebox (Qwen3-TTS). Across 18 newsletters, the pipeline compresses 282,402 characters of raw email to 37,715 characters of dense summaries — 7.5× — with all source URLs preserved and no cloud AI required.
+        HypeHound polls a Resend-managed mailbox, strips newsletter HTML to plain text, then classifies each ~600-word chunk with a local LLM — one structured PydanticAI call per chunk, output validated against a Pydantic schema — and stores the extracted items in SQLite. A second pass groups items by category and writes a clean digest; a third turns the digest into a narrated dual-host script, synthesised locally via <a href="https://github.com/gokhandemirtas/jeanclawd-voicebox" target="_blank">Voicebox</a> (Qwen3-TTS). The mash-up of all newsletters are condensed into a bitesize digest and published here automatically.
       </p>
       <a
         href="https://gokhandemirtas.github.io/blog/posts/hypehound-ai-newsletter-pipeline/"
@@ -94,7 +94,7 @@ const sorted = [...episodes].sort((a, b) => b.date.localeCompare(a.date));
 
   <!-- FOOTER -->
   <footer class="mt-auto border-t border-[#232330] bg-[#0c0c11] py-2 px-4 text-xs font-mono text-[#717182] flex flex-wrap items-center justify-between">
-    <span class="text-[#00ff66] font-space">[INFERENCE: LM_STUDIO]/[MODEL:QWEN3_30B_A3B]</span>
+    <span class="text-[#00ff66] font-space">[INFERENCE: LM_STUDIO]/[MODEL:QWEN3_30B_A3B]/[TRAFFIC: <a href="https://nanolytica.org">NANOLYTICA</a>]</span>
     <span class="text-[10px]">BUILT WITH ASTRO + JEANCLAWD_VOICEBOX</span>
   </footer>
 

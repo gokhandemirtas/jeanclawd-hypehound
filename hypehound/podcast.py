@@ -5,9 +5,23 @@ from pydantic_ai import Agent
 from .config import settings
 from .inference import get_model
 from .log import log, step
-from .models import Citation, Digest, DigestEntry, NarratorMode, PodcastScript, PodcastSegment, ScriptLine
+from .models import Citation, ContentDensity, Digest, DigestEntry, NarratorMode, PodcastScript, PodcastSegment, ScriptLine
 
-_SINGLE_CATEGORY_SYSTEM = """\
+_DENSITY_SINGLE_GUIDE: dict[ContentDensity, str] = {
+    ContentDensity.brief: "Each item gets 1–2 sentences: name it and state the single key fact.",
+    ContentDensity.standard: "Each item gets 2–3 sentences: introduce it, explain what it means, add brief commentary.",
+    ContentDensity.detailed: "Each item gets 4–6 sentences: introduce it, explain the context, discuss implications, add commentary.",
+}
+
+_DENSITY_DUAL_GUIDE: dict[ContentDensity, str] = {
+    ContentDensity.brief: "Each speaker's turn should be 1–2 sentences. Stay tight.",
+    ContentDensity.standard: "Each speaker's turn should be a full paragraph (3–6 sentences). No one-liners.",
+    ContentDensity.detailed: "Each speaker's turn should be a rich paragraph (5–8 sentences) with context, analysis, and back-and-forth depth.",
+}
+
+
+def _single_category_system(density: ContentDensity) -> str:
+    return f"""\
 You are a tech podcast scriptwriter generating one section of a longer episode.
 
 Rules:
@@ -15,16 +29,17 @@ Rules:
 - Mark each segment with [SEGMENT] on its own line
 - Plain spoken language — no markdown, no bullet points, no URLs read aloud
 - Cover EVERY item — no skipping, no merging stories together
-- Each item gets at least 2–3 sentences: introduce it, explain what it means, add commentary
+- {_DENSITY_SINGLE_GUIDE[density]}
 - Mention source names (e.g. "according to TLDR") where it feels natural
 
 Output — start immediately with [SEGMENT], no preamble.
 """
 
 
-def _dual_category_system() -> str:
+def _dual_category_system(density: ContentDensity = ContentDensity.standard) -> str:
     male = settings.tts_voice_male.capitalize()
     female = settings.tts_voice_female.capitalize()
+    turn_guide = _DENSITY_DUAL_GUIDE[density]
     return f"""\
 You are a tech podcast scriptwriter generating one section of a longer episode for two hosts: {male} (male) and {female} (female).
 
@@ -32,29 +47,30 @@ Rules:
 - Write 1–3 segments covering ALL items in the list provided
 - Mark each segment with [SEGMENT] on its own line
 - Every spoken line must begin with [{male.upper()}]: or [{female.upper()}]:
-- Each speaker's turn should be a full paragraph (3–6 sentences). No one-liners.
-  Good: [{male.upper()}]: <three sentences covering the topic fully>
-        [{female.upper()}]: <three sentences reacting and adding context>
+- {turn_guide}
+  Good: [{male.upper()}]: <sentences covering the topic fully>
+        [{female.upper()}]: <sentences reacting and adding context>
   Bad:  [{male.upper()}]: Interesting. [{female.upper()}]: Yeah.
 - They build on each other's paragraphs, not just acknowledge them
 - Cover EVERY item — no skipping, no merging stories together
-- Each item gets at least 2–3 sentences per host turn
 - Plain spoken language — no URLs read aloud
 
 Output — start immediately with [SEGMENT], no preamble.
 """
 
 
-_single_agent: Agent[None, str] = Agent(
-    get_model(),
-    output_type=str,
-    system_prompt=_SINGLE_CATEGORY_SYSTEM,
-)
-_dual_agent: Agent[None, str] = Agent(
-    get_model(),
-    output_type=str,
-    system_prompt=_dual_category_system(),
-)
+def _make_agents(density: ContentDensity) -> tuple[Agent, Agent]:
+    single: Agent[None, str] = Agent(
+        get_model(),
+        output_type=str,
+        system_prompt=_single_category_system(density),
+    )
+    dual: Agent[None, str] = Agent(
+        get_model(),
+        output_type=str,
+        system_prompt=_dual_category_system(density),
+    )
+    return single, dual
 
 
 def _build_category_prompt(
@@ -149,8 +165,10 @@ def _collect_citations(digest: Digest) -> list[Citation]:
 async def generate_podcast_script(
     digest: Digest,
     mode: NarratorMode = NarratorMode.single,
+    density: ContentDensity = ContentDensity.standard,
 ) -> PodcastScript:
-    agent = _dual_agent if mode == NarratorMode.dual else _single_agent
+    single_agent, dual_agent = _make_agents(density)
+    agent = dual_agent if mode == NarratorMode.dual else single_agent
     n_categories = len(digest.entries)
     all_segments: list[PodcastSegment] = []
     total_items = sum(len(e.items) for e in digest.entries)
@@ -158,7 +176,8 @@ async def generate_podcast_script(
     log.info(
         f"Generating {mode.value}-narrator script: "
         f"[bold]{n_categories}[/bold] categories, "
-        f"[bold]{total_items}[/bold] items"
+        f"[bold]{total_items}[/bold] items  "
+        f"[dim]density={density.value}[/dim]"
     )
 
     for i, entry in enumerate(digest.entries):

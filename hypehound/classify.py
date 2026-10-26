@@ -78,7 +78,10 @@ async def classify(
                 items = result.output
                 usage = result.usage
                 tok = f"[dim]{usage.total_tokens} tok[/dim]" if usage.total_tokens else ""
-                log.info(f"  chunk {i}/{len(chunks)}: [green]{len(items)} item(s)[/green] extracted  {tok}")
+                if items:
+                    log.info(f"  chunk {i}/{len(chunks)}: [green]{len(items)} item(s)[/green] extracted  {tok}")
+                else:
+                    log.info(f"  chunk {i}/{len(chunks)}: [dim]0 items — no news content detected[/dim]  {tok}")
                 all_items.extend(items)
         except Exception as exc:
             log.warning(f"[yellow]  chunk {i}/{len(chunks)} failed: {exc} — skipping[/yellow]")

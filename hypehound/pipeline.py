@@ -54,6 +54,7 @@ class PipelineState(BaseModel):
     podcast_audio_path: str | None = None  # None = auto-generate from period_end
     podcast_audio_resolved: str | None = None  # set after synthesis; read by Publish
     publish_web: bool = False
+    deploy_web: bool = False
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -310,6 +311,15 @@ class Publish(BaseNode[PipelineState, PipelineDeps]):
                 period_end=ctx.state.period_end,
             )
             ctx.deps.on_node_done("Publish")
+            if ctx.state.deploy_web:
+                ctx.deps.on_node_start("Deploy")
+                try:
+                    from .publish import deploy_web
+                    deploy_web()
+                    ctx.deps.on_node_done("Deploy")
+                except Exception:
+                    ctx.deps.on_node_error("Deploy")
+                    raise
             return End(ctx.state)
         except Exception:
             ctx.deps.on_node_error("Publish")
@@ -371,7 +381,7 @@ podcast_graph = _build_podcast_graph()
 
 INGEST_NODES = ["Fetch", "Classify"]
 DIGEST_NODES = ["Digest"]
-PODCAST_NODES = ["GeneratePodcast", "Publish"]
+PODCAST_NODES = ["GeneratePodcast", "Publish", "Deploy"]
 
 
 # --- Entry points ------------------------------------------------------------
@@ -401,6 +411,7 @@ async def run_podcast(
     json_path: str | None = None,
     audio_path: str | None = None,
     publish: bool = False,
+    deploy: bool = False,
     deps: PipelineDeps | None = None,
     digest: "Digest | None" = None,
 ) -> PipelineState:
@@ -418,5 +429,6 @@ async def run_podcast(
         podcast_json_path=json_path,
         podcast_audio_path=audio_path,
         publish_web=publish,
+        deploy_web=deploy,
     )
     return await podcast_graph.run(state=state, deps=deps or PipelineDeps(), inputs=GeneratePodcast())

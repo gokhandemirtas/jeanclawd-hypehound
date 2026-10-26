@@ -738,7 +738,11 @@ def publish_episode(
     with step("Upload audio to GitHub release"):
         audio_url = _upload_to_github_release(audio_path, stem)
 
-    sources = [dict(r) for r in get_emails_in_period(period_start, period_end)]
+    owner = settings.publish_owner_email.lower()
+    sources = [
+        dict(r) for r in get_emails_in_period(period_start, period_end)
+        if not owner or owner not in (r["sender"] or "").lower()
+    ]
 
     total_items = sum(len(e.items) for e in digest.entries)
 
@@ -751,3 +755,47 @@ def publish_episode(
 
     log.info(f"[green]Episode published[/green] → [bold cyan]{out_html}[/bold cyan]")
     return out_html
+
+
+def deploy_web() -> None:
+    """Build the Astro site and deploy to Cloudflare Pages via wrangler."""
+    from .config import settings
+
+    if not settings.cloudflare_api_token:
+        log.error("[red]CLOUDFLARE_API_TOKEN not set — skipping deploy[/red]")
+        return
+
+    web_dir = Path("web")
+
+    with step("Build Astro site"):
+        result = subprocess.run(
+            ["npm", "run", "build"],
+            cwd=web_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            log.error(f"[red]Astro build failed:[/red]\n{result.stderr}")
+            raise RuntimeError("Astro build failed")
+
+    with step("Deploy to Cloudflare Pages"):
+        env = {
+            **__import__("os").environ,
+            "CLOUDFLARE_API_TOKEN": settings.cloudflare_api_token,
+            "CLOUDFLARE_ACCOUNT_ID": settings.cloudflare_account_id,
+        }
+        result = subprocess.run(
+            [
+                "npx", "wrangler", "pages", "deploy", "dist",
+                "--project-name", settings.cloudflare_pages_project,
+                "--commit-dirty=true",
+            ],
+            cwd=web_dir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        if result.returncode != 0:
+            log.error(f"[red]Wrangler deploy failed:[/red]\n{result.stderr}")
+            raise RuntimeError("Cloudflare Pages deploy failed")
+        log.info(f"[green]Deployed to Cloudflare Pages[/green] ({settings.cloudflare_pages_project})")
