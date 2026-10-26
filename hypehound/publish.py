@@ -627,6 +627,7 @@ def _render_html(
 <script>
 {player_js}
 </script>
+<script src="/static/ambient.js"></script>
 
 </body>
 </html>"""
