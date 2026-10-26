@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,20 @@ from .inference import get_model
 from .log import log, step
 from .models import ContentDensity, Digest, DigestEntry
 from .store import create_digest, get_undigested_items, save_digest_items, update_digest_content
+
+
+async def _run_with_heartbeat(coro, label: str, interval: float = 8.0):
+    """Await a coroutine, logging elapsed time every `interval` seconds so the
+    console doesn't go silent during long LLM calls."""
+    task = asyncio.ensure_future(coro)
+    elapsed = 0.0
+    while not task.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=interval)
+        except asyncio.TimeoutError:
+            elapsed += interval
+            log.info(f"[dim]  … still thinking ({elapsed:.0f}s)[/dim]")
+    return task.result()
 
 _DIGESTS_DIR = Path("digests")
 
@@ -113,7 +128,7 @@ async def generate_digest(
         )
         try:
             with step(f"LLM · {cat} ({len(items)} item(s))", show_start=True):
-                result = await _agent.run(prompt)
+                result = await _run_with_heartbeat(_agent.run(prompt), cat)
         except Exception as exc:
             log.error(f"[red]Failed to digest category {cat!r}: {type(exc).__name__}: {exc!s:.200}[/red]")
             continue
