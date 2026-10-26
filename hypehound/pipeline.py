@@ -11,7 +11,7 @@ from .classify import classify
 from .digest import generate_digest
 from .ingest import fetch_new_emails
 from .log import log, step
-from .models import Digest, NarratorMode, PodcastScript
+from .models import ContentDensity, Digest, NarratorMode, PodcastScript
 from .store import mark_processed, save_email, save_items
 
 
@@ -41,12 +41,17 @@ class PipelineState(BaseModel):
     period_end: datetime = Field(default_factory=datetime.now)
     digest: Digest | None = None
 
+    # Shared output settings
+    content_density: ContentDensity = ContentDensity.standard
+
     # Podcast (populated when --podcast is requested)
     podcast_script: PodcastScript | None = None
     podcast_mode: NarratorMode = NarratorMode.single
     podcast_json_path: str | None = None   # None = auto-generate from period_end
     podcast_tts: bool = False
     podcast_audio_path: str | None = None  # None = auto-generate from period_end
+    podcast_audio_resolved: str | None = None  # set after synthesis; read by Publish
+    publish_web: bool = False
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -152,7 +157,12 @@ class Store(BaseNode[PipelineState, PipelineDeps]):
         subject = email["subject"] or "(no subject)"
 
         if not items:
-            log.warning(f"[yellow]No items extracted from '{subject}' — will retry next run[/yellow]")
+            preview = (email.get("text") or "")[:120].replace("\n", " ").strip()
+            log.warning(
+                f"[yellow]No items extracted from '{subject}' — "
+                f"LLM found no news content[/yellow]"
+                + (f"\n  [dim]{preview}…[/dim]" if preview else "")
+            )
             ctx.state.failed_count += 1
             ctx.deps.on_node_done("Store")
             return Pick()
@@ -171,7 +181,9 @@ class BuildDigest(BaseNode[PipelineState, PipelineDeps]):
     async def run(self, ctx: GraphRunContext[PipelineState, PipelineDeps]) -> End[PipelineState]:
         ctx.deps.on_node_start("Digest")
         try:
-            ctx.state.digest = await generate_digest(ctx.state.period_start, ctx.state.period_end)
+            ctx.state.digest = await generate_digest(
+                ctx.state.period_start, ctx.state.period_end, density=ctx.state.content_density
+            )
 
             digest = ctx.state.digest
             log.info(f"[green]Digest ready[/green] — {len(digest.entries)} categor(ies)")
@@ -206,7 +218,7 @@ def _versioned_path(directory: str, stem: str, suffix: str) -> Path:
 
 @dataclass
 class GeneratePodcast(BaseNode[PipelineState, PipelineDeps]):
-    async def run(self, ctx: GraphRunContext[PipelineState, PipelineDeps]) -> End[PipelineState]:
+    async def run(self, ctx: GraphRunContext[PipelineState, PipelineDeps]) -> "Publish | End[PipelineState]":
         ctx.deps.on_node_start("GeneratePodcast")
         try:
             from .podcast import generate_podcast_script
@@ -227,7 +239,9 @@ class GeneratePodcast(BaseNode[PipelineState, PipelineDeps]):
                 script = PodcastScript.model_validate_json(existing_json.read_text())
                 out = existing_json
             else:
-                script = await generate_podcast_script(ctx.state.digest, ctx.state.podcast_mode)
+                script = await generate_podcast_script(
+                    ctx.state.digest, ctx.state.podcast_mode, density=ctx.state.content_density
+                )
                 out = explicit_json or _versioned_path("podcast", stem, ".json")
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(script.model_dump_json(indent=2))
@@ -244,13 +258,47 @@ class GeneratePodcast(BaseNode[PipelineState, PipelineDeps]):
                 )
                 log.info(f"Starting TTS synthesis → [bold cyan]{audio_out}[/bold cyan]  ({len(script.segments)} segment(s))")
                 await synthesize_script(script, audio_out)
+                ctx.state.podcast_audio_resolved = str(audio_out)
             else:
                 log.info("[dim]TTS disabled — script only[/dim]")
 
             ctx.deps.on_node_done("GeneratePodcast")
+            if ctx.state.publish_web and ctx.state.podcast_audio_resolved:
+                return Publish()
             return End(ctx.state)
         except Exception:
             ctx.deps.on_node_error("GeneratePodcast")
+            raise
+
+
+@dataclass
+class Publish(BaseNode[PipelineState, PipelineDeps]):
+    async def run(self, ctx: GraphRunContext[PipelineState, PipelineDeps]) -> End[PipelineState]:
+        ctx.deps.on_node_start("Publish")
+        try:
+            from .publish import publish_episode
+
+            if not ctx.state.podcast_script or not ctx.state.podcast_audio_resolved:
+                log.error("[red]Publish requires a script and synthesized audio[/red]")
+                ctx.deps.on_node_error("Publish")
+                return End(ctx.state)
+
+            if not ctx.state.digest:
+                log.error("[red]Publish requires a digest[/red]")
+                ctx.deps.on_node_error("Publish")
+                return End(ctx.state)
+
+            publish_episode(
+                script=ctx.state.podcast_script,
+                digest=ctx.state.digest,
+                audio_path=Path(ctx.state.podcast_audio_resolved),
+                period_start=ctx.state.period_start,
+                period_end=ctx.state.period_end,
+            )
+            ctx.deps.on_node_done("Publish")
+            return End(ctx.state)
+        except Exception:
+            ctx.deps.on_node_error("Publish")
             raise
 
 
@@ -298,6 +346,7 @@ def _build_podcast_graph():
     g.add(
         g.edge_from(g.start_node).to(GeneratePodcast),
         g.node(GeneratePodcast),
+        g.node(Publish),
     )
     return g.build()
 
@@ -308,7 +357,7 @@ podcast_graph = _build_podcast_graph()
 
 INGEST_NODES = ["Fetch", "Classify"]
 DIGEST_NODES = ["Digest"]
-PODCAST_NODES = ["GeneratePodcast"]
+PODCAST_NODES = ["GeneratePodcast", "Publish"]
 
 
 # --- Entry points ------------------------------------------------------------
@@ -318,8 +367,13 @@ async def run_ingest(deps: PipelineDeps | None = None) -> PipelineState:
     return await ingest_graph.run(state=state, deps=deps or PipelineDeps(), inputs=Fetch())
 
 
-async def run_digest(period_start: datetime, period_end: datetime, deps: PipelineDeps | None = None) -> PipelineState:
-    state = PipelineState(period_start=period_start, period_end=period_end)
+async def run_digest(
+    period_start: datetime,
+    period_end: datetime,
+    density: ContentDensity = ContentDensity.standard,
+    deps: PipelineDeps | None = None,
+) -> PipelineState:
+    state = PipelineState(period_start=period_start, period_end=period_end, content_density=density)
     return await digest_graph.run(state=state, deps=deps or PipelineDeps(), inputs=BuildDigest())
 
 
@@ -327,22 +381,26 @@ async def run_podcast(
     period_start: datetime,
     period_end: datetime,
     mode: NarratorMode = NarratorMode.dual,
+    density: ContentDensity = ContentDensity.standard,
     tts: bool = True,
     json_path: str | None = None,
     audio_path: str | None = None,
+    publish: bool = False,
     deps: PipelineDeps | None = None,
     digest: "Digest | None" = None,
 ) -> PipelineState:
     if digest is None:
-        digest_state = await run_digest(period_start, period_end, deps=deps)
+        digest_state = await run_digest(period_start, period_end, density=density, deps=deps)
         digest = digest_state.digest
     state = PipelineState(
         period_start=period_start,
         period_end=period_end,
+        content_density=density,
         digest=digest,
         podcast_mode=mode,
         podcast_tts=tts,
         podcast_json_path=json_path,
         podcast_audio_path=audio_path,
+        publish_web=publish,
     )
     return await podcast_graph.run(state=state, deps=deps or PipelineDeps(), inputs=GeneratePodcast())

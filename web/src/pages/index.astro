@@ -1,0 +1,86 @@
+---
+import Base from '../layouts/Base.astro';
+import episodes from '../content/episodes.json';
+
+const sorted = [...episodes].sort((a, b) => b.date.localeCompare(a.date));
+---
+<Base title="HypeHound — AI Newsletter Digest">
+
+  <!-- STATUS BAR -->
+  <header class="border-b border-[#242430] bg-[#0c0c11] text-xs font-mono select-none sticky top-0 z-40">
+    <div class="flex items-center justify-between px-4 py-2">
+      <div class="flex items-center space-x-4">
+        <div class="flex items-center space-x-2 text-[#00ff66]">
+          <span class="inline-block w-2 h-2 bg-[#00ff66] pulse-dot"></span>
+          <span class="font-bold tracking-wider font-space">[HYPE_HOUND:DAEMON]</span>
+        </div>
+        <span class="text-[#4f5565] hidden md:inline">|</span>
+        <span class="text-[#7c8396] hidden md:inline">PIPELINE: RESEND → LOCAL_LLM → JEANCLAWD_VOICEBOX → PUBLISH</span>
+      </div>
+      <div class="flex items-center space-x-3 text-[#8b93a7]">
+        <span class="text-[#00ff66] font-space">[SYS_OK]</span>
+        <div class="bg-[#1f1f2a] px-2 py-0.5 border border-[#303042] text-[11px] text-[#00ff66]">
+          {sorted.length} EPISODE{sorted.length !== 1 ? 'S' : ''} ARCHIVED
+        </div>
+      </div>
+    </div>
+    <div class="flex items-center px-4 bg-[#14141c] border-t border-[#1e1e28] text-[11px]">
+      <span class="px-3 py-1.5 text-[#00ff66] bg-[#1e202b] border-b-2 border-[#00ff66] font-semibold">01:EPISODE_ARCHIVE</span>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <div class="max-w-[1400px] mx-auto px-4 lg:px-8 pt-10 pb-6">
+    <div class="border-l-2 border-[#00ff66] pl-4 mb-8">
+      <h1 class="text-3xl sm:text-4xl font-bold font-space text-white tracking-tight">HypeHound</h1>
+      <p class="mt-1 text-sm text-[#b9ccb5] font-mono">
+        AI-narrated tech digest — newsletters ingested, classified, and synthesised locally.
+      </p>
+    </div>
+
+    <!-- EPISODE GRID -->
+    {sorted.length === 0 ? (
+      <div class="bg-[#17171f] border border-[#2b2b38] p-8 text-center">
+        <p class="text-[#717182] font-mono text-sm">NO EPISODES ARCHIVED YET.</p>
+        <p class="text-[#4f5565] font-mono text-xs mt-2">Run the pipeline to generate your first episode.</p>
+      </div>
+    ) : (
+      <div class="space-y-3">
+        {sorted.map((ep, i) => (
+          <a href={`/episodes/${ep.date}/`} class="block bg-[#17171f] border border-[#2b2b38] p-4 hover:border-[#00ff66] hover:bg-[#1c1c25] transition-all group relative overflow-hidden">
+            <div class="absolute top-0 left-0 bottom-0 w-0 bg-[#00ff66] group-hover:w-[2px] transition-all duration-200"></div>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div class="flex items-center gap-3">
+                <span class="text-[10px] bg-[#0e0e13] border border-[#2c2c3b] px-1.5 py-0.5 text-[#717182] font-space font-bold hidden sm:inline">
+                  #{String(sorted.length - i).padStart(3, '0')}
+                </span>
+                <div>
+                  <span class="text-white font-space font-bold text-sm group-hover:text-[#00ff66] transition-colors">
+                    {ep.title}
+                  </span>
+                  <div class="flex items-center gap-2 mt-0.5 text-[11px] text-[#717182] font-mono">
+                    <span class="text-[#00ff66]">{ep.date}</span>
+                    <span class="text-[#3c3c50]">·</span>
+                    <span>{ep.n_newsletters} newsletter{ep.n_newsletters !== 1 ? 's' : ''}</span>
+                    <span class="text-[#3c3c50]">·</span>
+                    <span>{ep.n_items} {ep.n_items !== 1 ? 'stories' : 'story'}</span>
+                  </div>
+                </div>
+              </div>
+              <span class="text-[10px] text-[#525968] group-hover:text-[#00ff66] font-mono self-end sm:self-auto transition-colors">
+                PLAY EPISODE »
+              </span>
+            </div>
+          </a>
+        ))}
+      </div>
+    )}
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="border-t border-[#232330] bg-[#0c0c11] py-2 px-4 text-xs font-mono text-[#717182] flex flex-wrap items-center justify-between mt-12">
+    <span class="text-[#00ff66] font-space">[STATION: HYPE_HOUND]</span>
+    <span class="text-[10px]">LOCAL_INFERENCE · NO CLOUD CALLS · BUILT WITH HYPEHOUND + JEANCLAWD</span>
+  </footer>
+
+</Base>

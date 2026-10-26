@@ -7,11 +7,14 @@ import psutil
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, RichLog, Static
+
 from textual.worker import Worker, WorkerState
 
 from .config import settings
 from .log import attach_textual_handler, log
+from .models import ContentDensity
 from .pipeline import DIGEST_NODES, INGEST_NODES, PODCAST_NODES, PipelineDeps
 from .store import get_stats
 
@@ -227,6 +230,61 @@ def _artifacts_markup(width: int = 24) -> str:
     return "\n".join(lines)
 
 
+# --- Density modal -----------------------------------------------------------
+
+class DensityModal(ModalScreen[ContentDensity]):
+    CSS = """
+    DensityModal {
+        align: center middle;
+    }
+    #density-box {
+        background: #1e2030;
+        border: tall #24283b;
+        padding: 1 3;
+        width: 44;
+        height: auto;
+    }
+    #density-box Static {
+        width: 100%;
+        margin-bottom: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("b", "pick_brief", show=False),
+        Binding("s", "pick_standard", show=False),
+        Binding("d", "pick_detailed", show=False),
+        Binding("escape", "cancel", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="density-box"):
+            yield Static(
+                "[bold #22d3ee]Output density[/bold #22d3ee]\n"
+                "[dim]How much of each story should be kept?[/dim]",
+                markup=True,
+            )
+            yield Static(
+                "  [bold]\\[b][/bold]  Brief    — headline + key fact\n"
+                "  [bold]\\[s][/bold]  Standard — what happened + why it matters\n"
+                "  [bold]\\[d][/bold]  Detailed — full context + implications\n\n"
+                "  [dim]esc  cancel[/dim]",
+                markup=True,
+            )
+
+    def action_pick_brief(self) -> None:
+        self.dismiss(ContentDensity.brief)
+
+    def action_pick_standard(self) -> None:
+        self.dismiss(ContentDensity.standard)
+
+    def action_pick_detailed(self) -> None:
+        self.dismiss(ContentDensity.detailed)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 # --- App ---------------------------------------------------------------------
 
 class HypeHoundApp(App):
@@ -283,6 +341,7 @@ class HypeHoundApp(App):
         Binding("i", "run_ingest", "Ingest", show=True),
         Binding("d", "run_digest", "Digest", show=True),
         Binding("p", "run_podcast", "Podcast", show=True),
+        Binding("w", "run_publish", "Publish web", show=True),
         Binding("r", "run_all", "Run all", show=True),
         Binding("ctrl+x", "reset_db", "Reset DB", show=True),
         Binding("q", "quit", "Quit", show=True),
@@ -343,7 +402,7 @@ class HypeHoundApp(App):
         log.info(
             "[bold #22d3ee]🐕 HypeHound ready for action![/bold #22d3ee]  "
             "[dim]i[/dim] ingest  [dim]d[/dim] digest  [dim]p[/dim] podcast  "
-            "[dim]r[/dim] run all  [dim]ctrl+x[/dim] reset  [dim]q[/dim] quit"
+            "[dim]w[/dim] publish web  [dim]r[/dim] run all  [dim]ctrl+x[/dim] reset  [dim]q[/dim] quit"
         )
         self.run_worker(self._run_health_checks(), exclusive=False, name="health")
 
@@ -451,16 +510,32 @@ class HypeHoundApp(App):
         self.run_worker(self._ingest(), exclusive=True, name="ingest")
 
     def action_run_digest(self) -> None:
-        self._reset_pipeline("Digest", DIGEST_NODES)
-        self.run_worker(self._digest(), exclusive=True, name="digest")
+        def _start(density: ContentDensity | None) -> None:
+            if density is None:
+                return
+            self._reset_pipeline("Digest", DIGEST_NODES)
+            self.run_worker(self._digest(density), exclusive=True, name="digest")
+        self.push_screen(DensityModal(), _start)
 
     def action_run_podcast(self) -> None:
-        self._reset_pipeline("Podcast", DIGEST_NODES + PODCAST_NODES)
-        self.run_worker(self._podcast(), exclusive=True, name="podcast")
+        def _start(density: ContentDensity | None) -> None:
+            if density is None:
+                return
+            self._reset_pipeline("Podcast", DIGEST_NODES + PODCAST_NODES)
+            self.run_worker(self._podcast(density), exclusive=True, name="podcast")
+        self.push_screen(DensityModal(), _start)
+
+    def action_run_publish(self) -> None:
+        self._reset_pipeline("Publish", ["Publish"])
+        self.run_worker(self._publish(), exclusive=True, name="publish")
 
     def action_run_all(self) -> None:
-        self._reset_pipeline("Full run", INGEST_NODES + DIGEST_NODES + PODCAST_NODES)
-        self.run_worker(self._run_all(), exclusive=True, name="run_all")
+        def _start(density: ContentDensity | None) -> None:
+            if density is None:
+                return
+            self._reset_pipeline("Full run", INGEST_NODES + DIGEST_NODES + PODCAST_NODES)
+            self.run_worker(self._run_all(density), exclusive=True, name="run_all")
+        self.push_screen(DensityModal(), _start)
 
     def action_reset_db(self) -> None:
         if self._confirming_reset:
@@ -493,13 +568,13 @@ class HypeHoundApp(App):
         from .pipeline import run_ingest
         await run_ingest(deps=self._make_deps())
 
-    async def _digest(self) -> None:
+    async def _digest(self, density: ContentDensity) -> None:
         from .pipeline import run_digest
         end = datetime.now()
         start = end - timedelta(days=7)
-        await run_digest(start, end, deps=self._make_deps())
+        await run_digest(start, end, density=density, deps=self._make_deps())
 
-    async def _podcast(self) -> None:
+    async def _podcast(self, density: ContentDensity) -> None:
         from .models import Digest, NarratorMode
         from .pipeline import run_podcast
         from .store import get_latest_digest_content
@@ -534,18 +609,63 @@ class HypeHoundApp(App):
         else:
             log.info("[dim]No script found — will generate script then synthesise audio[/dim]")
 
-        await run_podcast(start, end, mode=NarratorMode.dual, deps=self._make_deps(), digest=digest)
+        await run_podcast(start, end, mode=NarratorMode.dual, density=density, deps=self._make_deps(), digest=digest)
 
-    async def _run_all(self) -> None:
+    async def _publish(self) -> None:
+        from .models import Digest, PodcastScript
+        from .publish import publish_episode
+        from .store import get_latest_digest_content
+
+        podcast_dir = Path("podcast")
+
+        m4a_files = sorted(podcast_dir.glob("*.m4a"), reverse=True)
+        if not m4a_files:
+            log.error("[red]Publish: no .m4a found in podcast/ — run podcast step first[/red]")
+            return
+        audio_path = m4a_files[0]
+        stem = audio_path.stem
+
+        script_path = podcast_dir / f"{stem}.json"
+        if not script_path.exists():
+            log.error(f"[red]Publish: script not found at {script_path}[/red]")
+            return
+
+        try:
+            script = PodcastScript.model_validate_json(script_path.read_text())
+        except Exception as exc:
+            log.error(f"[red]Publish: could not load script: {exc}[/red]")
+            return
+
+        raw = get_latest_digest_content()
+        if not raw:
+            log.error("[red]Publish: no digest in DB — run digest step first[/red]")
+            return
+        try:
+            digest = Digest.model_validate_json(raw)
+        except Exception as exc:
+            log.error(f"[red]Publish: could not load digest: {exc}[/red]")
+            return
+
+        from datetime import datetime
+        try:
+            period_end = datetime.strptime(stem, "%Y-%m-%d")
+        except ValueError:
+            period_end = datetime.now()
+        period_start = period_end.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        log.info(f"[dim]Publishing episode from [bold]{audio_path.name}[/bold][/dim]")
+        publish_episode(script, digest, audio_path, period_start, period_end)
+
+    async def _run_all(self, density: ContentDensity) -> None:
         from .models import NarratorMode
         from .pipeline import run_digest, run_ingest, run_podcast
         deps = self._make_deps()
         await run_ingest(deps=deps)
         end = datetime.now()
         start = end - timedelta(days=1)
-        digest_state = await run_digest(start, end, deps=deps)
+        digest_state = await run_digest(start, end, density=density, deps=deps)
         if digest_state.digest is not None:
-            await run_podcast(start, end, mode=NarratorMode.dual, deps=deps, digest=digest_state.digest)
+            await run_podcast(start, end, mode=NarratorMode.dual, density=density, deps=deps, digest=digest_state.digest, publish=True)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.state == WorkerState.ERROR:

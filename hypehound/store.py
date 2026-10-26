@@ -182,3 +182,13 @@ def create_digest(period_start: datetime, period_end: datetime) -> int:
 def update_digest_content(digest_id: int, content: str) -> None:
     with _conn() as conn:
         conn.execute("UPDATE digests SET content = ? WHERE id = ?", (content, digest_id))
+
+
+def get_emails_in_period(start: datetime, end: datetime) -> list[sqlite3.Row]:
+    with _conn() as conn:
+        return conn.execute(
+            "SELECT sender, subject, received_at FROM emails "
+            "WHERE received_at >= ? AND received_at <= ? AND processed_at IS NOT NULL "
+            "ORDER BY received_at",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()

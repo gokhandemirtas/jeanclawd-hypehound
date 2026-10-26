@@ -1,0 +1,62 @@
+/* Phosphor Grid — HypeHound design system */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Press+Start+2P&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+
+:root {
+  --bg-terminal: #131318;
+  --surface-card: #1f1f25;
+  --surface-dark: #0e0e13;
+  --accent-green: #00ff66;
+  --accent-amber: #ffb830;
+  --accent-cyan: #00e5ff;
+  --accent-magenta: #ff007f;
+  --text-main: #e4e1e9;
+  --text-muted: #b9ccb5;
+  --border-line: #2d2d38;
+}
+
+body {
+  background-color: var(--bg-terminal);
+  color: var(--text-main);
+  font-family: 'JetBrains Mono', monospace;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+.font-space { font-family: 'Space Mono', monospace; }
+.font-pixel { font-family: 'Press Start 2P', monospace; }
+
+/* CRT scanline overlay */
+.crt-overlay {
+  background:
+    linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+    linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+  background-size: 100% 3px, 6px 100%;
+  pointer-events: none;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #111116; }
+::-webkit-scrollbar-thumb { background: #2e303d; border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-green); }
+
+/* Script segment timing sync */
+.segment {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.segment.active {
+  border-left: 3px solid var(--accent-green) !important;
+  background-color: rgba(0, 255, 102, 0.07) !important;
+  box-shadow: inset 4px 0 16px -2px rgba(0, 255, 102, 0.18), 0 0 12px rgba(0, 255, 102, 0.05);
+}
+
+/* Pulse animation for live indicators */
+.pulse-dot { animation: pulse-anim 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+@keyframes pulse-anim { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* Range input */
+input[type=range] { accent-color: #00ff66; }
