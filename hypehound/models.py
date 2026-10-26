@@ -69,3 +69,4 @@ class PodcastScript(BaseModel):
     mode: NarratorMode
     segments: list[PodcastSegment]
     citations: list[Citation] = []
+    digest_id: int | None = None

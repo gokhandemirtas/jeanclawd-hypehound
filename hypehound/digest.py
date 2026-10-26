@@ -6,7 +6,7 @@ from pydantic_ai import Agent
 
 from .inference import get_model
 from .log import log, step
-from .models import Digest, DigestEntry
+from .models import ContentDensity, Digest, DigestEntry
 from .store import create_digest, get_undigested_items, save_digest_items, update_digest_content
 
 _DIGESTS_DIR = Path("digests")
@@ -51,19 +51,37 @@ def write_digest_markdown(digest: Digest) -> Path:
     path.write_text(render_markdown(digest))
     return path
 
+_DENSITY_DIGEST_GUIDE: dict[ContentDensity, str] = {
+    ContentDensity.brief: (
+        "Write a 1-sentence category intro. For each item write a 1-2 sentence summary — "
+        "headline + the single most important fact."
+    ),
+    ContentDensity.standard: (
+        "Write a 2-sentence category intro. For each item write a 2-3 sentence summary — "
+        "what happened, why it matters."
+    ),
+    ContentDensity.detailed: (
+        "Write a 2-3 sentence category intro. For each item write a 4-6 sentence summary — "
+        "full context, implications, and relevant background."
+    ),
+}
+
 _agent: Agent[None, DigestEntry] = Agent(
     get_model(),
     output_type=DigestEntry,
     retries=2,
     system_prompt=(
         "You are a newsletter digest writer. Given news items for a single category, "
-        "produce a clean digest section. Write a brief 1-2 sentence intro for the category, "
-        "then include each item. Preserve all citation URLs."
+        "produce a clean digest section. Preserve all citation URLs."
     ),
 )
 
 
-async def generate_digest(period_start: datetime, period_end: datetime) -> Digest:
+async def generate_digest(
+    period_start: datetime,
+    period_end: datetime,
+    density: ContentDensity = ContentDensity.standard,
+) -> tuple[Digest, int]:
     with step("Fetch undigested items"):
         rows = get_undigested_items(since=period_start)
     if not rows:
@@ -84,11 +102,13 @@ async def generate_digest(period_start: datetime, period_end: datetime) -> Diges
     digest_id = create_digest(period_start, period_end)
     entries: list[DigestEntry] = []
 
+    density_guide = _DENSITY_DIGEST_GUIDE[density]
     for cat, items in sorted(by_category.items()):
         items_text = "\n".join(f"- {item['headline']}: {item['summary']}" for item in items)
         prompt = (
             f"Category: {cat}\n"
-            f"Period: {period_start.date()} to {period_end.date()}\n\n"
+            f"Period: {period_start.date()} to {period_end.date()}\n"
+            f"Density: {density_guide}\n\n"
             f"{items_text}"
         )
         try:
@@ -115,4 +135,4 @@ async def generate_digest(period_start: datetime, period_end: datetime) -> Diges
     result_digest = Digest(period_start=period_start, period_end=period_end, entries=entries)
     md_path = write_digest_markdown(result_digest)
     log.info(f"[dim]Digest saved → {md_path}[/dim]")
-    return result_digest
+    return result_digest, digest_id

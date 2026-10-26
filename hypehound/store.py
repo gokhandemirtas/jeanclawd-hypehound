@@ -146,6 +146,14 @@ def save_digest_items(digest_id: int, item_ids: list[int]) -> None:
         )
 
 
+def get_digest_by_id(digest_id: int) -> str | None:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT content FROM digests WHERE id = ?", (digest_id,)
+        ).fetchone()
+        return row[0] if row else None
+
+
 def get_latest_digest_content() -> str | None:
     with _conn() as conn:
         row = conn.execute(

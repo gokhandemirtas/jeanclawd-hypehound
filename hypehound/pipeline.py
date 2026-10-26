@@ -40,6 +40,7 @@ class PipelineState(BaseModel):
     period_start: datetime = Field(default_factory=lambda: datetime.now() - timedelta(days=1))
     period_end: datetime = Field(default_factory=datetime.now)
     digest: Digest | None = None
+    digest_id: int | None = None
 
     # Shared output settings
     content_density: ContentDensity = ContentDensity.standard
@@ -182,7 +183,7 @@ class BuildDigest(BaseNode[PipelineState, PipelineDeps]):
     async def run(self, ctx: GraphRunContext[PipelineState, PipelineDeps]) -> End[PipelineState]:
         ctx.deps.on_node_start("Digest")
         try:
-            ctx.state.digest = await generate_digest(
+            ctx.state.digest, ctx.state.digest_id = await generate_digest(
                 ctx.state.period_start, ctx.state.period_end, density=ctx.state.content_density
             )
 
@@ -239,10 +240,19 @@ class GeneratePodcast(BaseNode[PipelineState, PipelineDeps]):
                 log.info(f"Loading existing script → [bold cyan]{existing_json}[/bold cyan]")
                 script = PodcastScript.model_validate_json(existing_json.read_text())
                 out = existing_json
+                # Restore digest linkage from the persisted script
+                if script.digest_id is not None:
+                    ctx.state.digest_id = script.digest_id
+                    if ctx.state.digest is None:
+                        from .store import get_digest_by_id
+                        raw = get_digest_by_id(script.digest_id)
+                        if raw:
+                            ctx.state.digest = Digest.model_validate_json(raw)
             else:
                 script = await generate_podcast_script(
                     ctx.state.digest, ctx.state.podcast_mode, density=ctx.state.content_density
                 )
+                script.digest_id = ctx.state.digest_id
                 out = explicit_json or _versioned_path("podcast", stem, ".json")
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(script.model_dump_json(indent=2))

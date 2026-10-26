@@ -697,7 +697,15 @@ class HypeHoundApp(App):
             log.error(f"[red]Publish: could not load script: {exc}[/red]")
             return
 
-        raw = get_latest_digest_content()
+        if script.digest_id is not None:
+            from .store import get_digest_by_id
+            raw = get_digest_by_id(script.digest_id)
+            if not raw:
+                log.warning(f"[yellow]Publish: digest #{script.digest_id} not found — falling back to latest[/yellow]")
+                raw = get_latest_digest_content()
+        else:
+            log.warning("[yellow]Publish: script has no digest_id — using latest digest[/yellow]")
+            raw = get_latest_digest_content()
         if not raw:
             log.error("[red]Publish: no digest in DB — run digest step first[/red]")
             return
