@@ -559,6 +559,7 @@ class HypeHoundApp(App):
     # --- Actions -------------------------------------------------------------
 
     def action_run_ingest(self) -> None:
+        log.info("[bold #22d3ee]Starting ingest…[/bold #22d3ee]")
         self._reset_pipeline("Ingest", INGEST_NODES)
         self.run_worker(self._ingest(), exclusive=True, name="ingest")
 
@@ -583,6 +584,7 @@ class HypeHoundApp(App):
         self.push_screen(DensityModal(), _got_density)
 
     def action_run_publish(self) -> None:
+        log.info("[bold #22d3ee]Publishing episode…[/bold #22d3ee]")
         self._reset_pipeline("Publish", ["Publish"])
         self.run_worker(self._publish(), exclusive=True, name="publish")
 
