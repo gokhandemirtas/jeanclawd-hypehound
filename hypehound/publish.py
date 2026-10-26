@@ -542,8 +542,20 @@ def _render_html(
         </div>
       </section>
 
+      <!-- MOBILE TABS (hidden on desktop) -->
+      <div class="flex lg:hidden border-b border-[#2b2b38]" id="mobileTabs">
+        <button id="tabBtnScript" onclick="switchTab('script')"
+          class="flex-1 px-4 py-2.5 text-xs font-space font-bold tracking-wider border-b-2 transition-colors">
+          01 // SCRIPT
+        </button>
+        <button id="tabBtnDigest" onclick="switchTab('digest')"
+          class="flex-1 px-4 py-2.5 text-xs font-space font-bold tracking-wider border-b-2 transition-colors">
+          02 // FULL DIGEST
+        </button>
+      </div>
+
       <!-- SCRIPT -->
-      <section class="flex flex-col space-y-3">
+      <section id="panelScript" class="flex flex-col space-y-3">
         <div class="flex items-center justify-between">
           <h2 class="text-sm font-bold font-space uppercase tracking-wider text-[#00ff66] flex items-center gap-2">
             <span class="text-xs bg-[#00ff66] text-black px-1 font-bold">01</span>
@@ -555,7 +567,7 @@ def _render_html(
             <span>SYNC: <strong class="text-white">ON</strong></span>
           </div>
         </div>
-        <div class="space-y-3 max-h-[680px] overflow-y-auto pr-1" id="scriptContainer">
+        <div class="space-y-3 lg:max-h-[680px] lg:overflow-y-auto pr-1" id="scriptContainer">
 {script_html}
         </div>
       </section>
@@ -566,7 +578,7 @@ def _render_html(
     <div class="lg:col-span-5 flex flex-col space-y-6">
 
       <!-- FULL DIGEST -->
-      <section class="bg-[#17171f] border border-[#2b2b38] p-5">
+      <section id="panelDigest" class="bg-[#17171f] border border-[#2b2b38] p-5">
         <div class="flex items-center justify-between pb-3 border-b border-[#242432] mb-4">
           <div class="flex items-center space-x-2">
             <span class="text-xs bg-[#00ff66] text-black px-1 font-bold font-space">02</span>
@@ -626,6 +638,39 @@ def _render_html(
 
 <script>
 {player_js}
+</script>
+<script>
+(function () {
+  var ACTIVE   = ['#00ff66', '#1e202b', '#00ff66'];  // color, bg, border
+  var INACTIVE = ['#717182', 'transparent', 'transparent'];
+  function applyStyle(btn, c) {
+    btn.style.color = c[0]; btn.style.background = c[1]; btn.style.borderBottomColor = c[2];
+  }
+  window.switchTab = function (tab) {
+    if (window.innerWidth >= 1024) return;
+    var ps = document.getElementById('panelScript');
+    var pd = document.getElementById('panelDigest');
+    var bs = document.getElementById('tabBtnScript');
+    var bd = document.getElementById('tabBtnDigest');
+    if (tab === 'script') {
+      ps.style.display = ''; pd.style.display = 'none';
+      applyStyle(bs, ACTIVE); applyStyle(bd, INACTIVE);
+    } else {
+      ps.style.display = 'none'; pd.style.display = '';
+      applyStyle(bs, INACTIVE); applyStyle(bd, ACTIVE);
+    }
+  };
+  function init() {
+    if (window.innerWidth >= 1024) return;
+    var bs = document.getElementById('tabBtnScript');
+    var bd = document.getElementById('tabBtnDigest');
+    if (!bs) return;
+    document.getElementById('panelDigest').style.display = 'none';
+    applyStyle(bs, ACTIVE); applyStyle(bd, INACTIVE);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+}());
 </script>
 <script src="/static/ambient.js"></script>
 

@@ -98,6 +98,8 @@ body::before {
   opacity: var(--ambient-opacity);
 }
 
+@media (max-width: 1023px) { .ambient-glyphs { display: none; } }
+
 .ambient-glyph::after {
   content: '';
   position: absolute;
