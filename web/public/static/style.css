@@ -62,13 +62,17 @@ body {
 input[type=range] { accent-color: #00ff66; }
 
 /* Ambient parallax glyphs */
-:root { --background-scroll-y: 0px; }
+:root {
+  --background-scroll-y: 0px;
+  --ambient-color: #00ff66;
+  --ambient-opacity: 0.3;
+}
 
 body::before {
   content: '';
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: 5;
   pointer-events: none;
   background-image: radial-gradient(circle, rgba(0, 255, 102, 0.12) 1px, transparent 1px);
   background-size: 32px 32px;
@@ -78,7 +82,7 @@ body::before {
 .ambient-glyphs {
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: 5;
   overflow: hidden;
   pointer-events: none;
 }
@@ -87,10 +91,11 @@ body::before {
   position: absolute;
   font-family: 'Space Mono', monospace;
   font-weight: 700;
-  color: #00ff66;
+  color: var(--ambient-color);
   will-change: transform;
   line-height: 1;
   user-select: none;
+  opacity: var(--ambient-opacity);
 }
 
 .ambient-glyph::after {

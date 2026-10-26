@@ -27,7 +27,6 @@
     el.textContent = g.char;
     el.style.cssText = [
       'font-size:' + g.size,
-      'opacity:' + g.opacity,
       g.top   ? 'top:'   + g.top   : '',
       g.left  ? 'left:'  + g.left  : '',
       g.right ? 'right:' + g.right : '',
