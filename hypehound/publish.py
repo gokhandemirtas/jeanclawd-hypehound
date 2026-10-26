@@ -423,7 +423,7 @@ def _render_html(
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Press+Start+2P&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="min-h-screen bg-[#131318] text-[#e4e1e9] selection:bg-[#00ff66] selection:text-black">
+<body class="min-h-screen flex flex-col bg-[#131318] text-[#e4e1e9] selection:bg-[#00ff66] selection:text-black">
 
   <audio id="player" preload="metadata" class="hidden">
     <source src="{_h(audio_url)}" type="audio/mp4">
@@ -457,7 +457,7 @@ def _render_html(
   </header>
 
   <!-- MAIN 2-COLUMN LAYOUT -->
-  <main class="max-w-[1780px] mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 relative">
+  <main class="flex-grow max-w-[1780px] mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 relative">
 
     <!-- LEFT COLUMN -->
     <div class="lg:col-span-7 flex flex-col space-y-6">
