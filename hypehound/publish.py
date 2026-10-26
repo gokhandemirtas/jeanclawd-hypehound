@@ -640,37 +640,35 @@ def _render_html(
 {player_js}
 </script>
 <script>
-(function () {
-  var ACTIVE   = ['#00ff66', '#1e202b', '#00ff66'];  // color, bg, border
+(function () {{
+  var ACTIVE   = ['#00ff66', '#1e202b', '#00ff66'];
   var INACTIVE = ['#717182', 'transparent', 'transparent'];
-  function applyStyle(btn, c) {
-    btn.style.color = c[0]; btn.style.background = c[1]; btn.style.borderBottomColor = c[2];
-  }
-  window.switchTab = function (tab) {
+  function applyStyle(btn, c) {{ btn.style.color = c[0]; btn.style.background = c[1]; btn.style.borderBottomColor = c[2]; }}
+  window.switchTab = function (tab) {{
     if (window.innerWidth >= 1024) return;
     var ps = document.getElementById('panelScript');
     var pd = document.getElementById('panelDigest');
     var bs = document.getElementById('tabBtnScript');
     var bd = document.getElementById('tabBtnDigest');
-    if (tab === 'script') {
+    if (tab === 'script') {{
       ps.style.display = ''; pd.style.display = 'none';
       applyStyle(bs, ACTIVE); applyStyle(bd, INACTIVE);
-    } else {
+    }} else {{
       ps.style.display = 'none'; pd.style.display = '';
       applyStyle(bs, INACTIVE); applyStyle(bd, ACTIVE);
-    }
-  };
-  function init() {
+    }}
+  }};
+  function init() {{
     if (window.innerWidth >= 1024) return;
     var bs = document.getElementById('tabBtnScript');
     var bd = document.getElementById('tabBtnDigest');
     if (!bs) return;
     document.getElementById('panelDigest').style.display = 'none';
     applyStyle(bs, ACTIVE); applyStyle(bd, INACTIVE);
-  }
+  }}
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
-}());
+}}());
 </script>
 <script src="/static/ambient.js"></script>
 
