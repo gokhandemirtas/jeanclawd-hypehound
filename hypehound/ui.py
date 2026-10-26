@@ -14,7 +14,7 @@ from textual.worker import Worker, WorkerState
 
 from .config import settings
 from .log import attach_textual_handler, log
-from .models import ContentDensity
+from .models import AudioQuality, ContentDensity
 from .pipeline import DIGEST_NODES, INGEST_NODES, PODCAST_NODES, PipelineDeps
 from .store import get_stats
 
@@ -285,6 +285,59 @@ class DensityModal(ModalScreen[ContentDensity]):
         self.dismiss(None)
 
 
+class QualityModal(ModalScreen[AudioQuality]):
+    CSS = """
+    QualityModal {
+        align: center middle;
+    }
+    #quality-box {
+        background: #1e2030;
+        border: tall #24283b;
+        padding: 1 3;
+        width: 44;
+        height: auto;
+    }
+    #quality-box Static {
+        width: 100%;
+        margin-bottom: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("l", "pick_low", show=False),
+        Binding("m", "pick_medium", show=False),
+        Binding("h", "pick_high", show=False),
+        Binding("escape", "cancel", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="quality-box"):
+            yield Static(
+                "[bold #22d3ee]Audio quality[/bold #22d3ee]\n"
+                "[dim]Higher = better sound, larger file[/dim]",
+                markup=True,
+            )
+            yield Static(
+                "  [bold]\\[l][/bold]  Low    — 32 kbps (~half size, fine for speech)\n"
+                "  [bold]\\[m][/bold]  Medium — 48 kbps — good balance\n"
+                "  [bold]\\[h][/bold]  High   — 64 kbps — excellent quality\n\n"
+                "  [dim]esc  cancel[/dim]",
+                markup=True,
+            )
+
+    def action_pick_low(self) -> None:
+        self.dismiss(AudioQuality.low)
+
+    def action_pick_medium(self) -> None:
+        self.dismiss(AudioQuality.medium)
+
+    def action_pick_high(self) -> None:
+        self.dismiss(AudioQuality.high)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 # --- App ---------------------------------------------------------------------
 
 class HypeHoundApp(App):
@@ -518,24 +571,32 @@ class HypeHoundApp(App):
         self.push_screen(DensityModal(), _start)
 
     def action_run_podcast(self) -> None:
-        def _start(density: ContentDensity | None) -> None:
+        def _got_density(density: ContentDensity | None) -> None:
             if density is None:
                 return
-            self._reset_pipeline("Podcast", DIGEST_NODES + PODCAST_NODES)
-            self.run_worker(self._podcast(density), exclusive=True, name="podcast")
-        self.push_screen(DensityModal(), _start)
+            def _got_quality(quality: AudioQuality | None) -> None:
+                if quality is None:
+                    return
+                self._reset_pipeline("Podcast", DIGEST_NODES + PODCAST_NODES)
+                self.run_worker(self._podcast(density, quality), exclusive=True, name="podcast")
+            self.push_screen(QualityModal(), _got_quality)
+        self.push_screen(DensityModal(), _got_density)
 
     def action_run_publish(self) -> None:
         self._reset_pipeline("Publish", ["Publish"])
         self.run_worker(self._publish(), exclusive=True, name="publish")
 
     def action_run_all(self) -> None:
-        def _start(density: ContentDensity | None) -> None:
+        def _got_density(density: ContentDensity | None) -> None:
             if density is None:
                 return
-            self._reset_pipeline("Full run", INGEST_NODES + DIGEST_NODES + PODCAST_NODES)
-            self.run_worker(self._run_all(density), exclusive=True, name="run_all")
-        self.push_screen(DensityModal(), _start)
+            def _got_quality(quality: AudioQuality | None) -> None:
+                if quality is None:
+                    return
+                self._reset_pipeline("Full run", INGEST_NODES + DIGEST_NODES + PODCAST_NODES)
+                self.run_worker(self._run_all(density, quality), exclusive=True, name="run_all")
+            self.push_screen(QualityModal(), _got_quality)
+        self.push_screen(DensityModal(), _got_density)
 
     def action_reset_db(self) -> None:
         if self._confirming_reset:
@@ -574,7 +635,7 @@ class HypeHoundApp(App):
         start = end - timedelta(days=7)
         await run_digest(start, end, density=density, deps=self._make_deps())
 
-    async def _podcast(self, density: ContentDensity) -> None:
+    async def _podcast(self, density: ContentDensity, quality: AudioQuality = AudioQuality.high) -> None:
         from .models import Digest, NarratorMode
         from .pipeline import run_podcast
         from .store import get_latest_digest_content
@@ -609,7 +670,7 @@ class HypeHoundApp(App):
         else:
             log.info("[dim]No script found — will generate script then synthesise audio[/dim]")
 
-        await run_podcast(start, end, mode=NarratorMode.dual, density=density, deps=self._make_deps(), digest=digest)
+        await run_podcast(start, end, mode=NarratorMode.dual, density=density, quality=quality, deps=self._make_deps(), digest=digest)
 
     async def _publish(self) -> None:
         from .models import Digest, PodcastScript
@@ -648,15 +709,19 @@ class HypeHoundApp(App):
 
         from datetime import datetime
         try:
-            period_end = datetime.strptime(stem, "%Y-%m-%d")
+            # end = last second of that calendar day
+            period_end = datetime.strptime(stem, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, microsecond=0
+            )
         except ValueError:
             period_end = datetime.now()
-        period_start = period_end.replace(hour=0, minute=0, second=0, microsecond=0)
+        # look back 7 days to match the digest window
+        period_start = period_end - timedelta(days=7)
 
         log.info(f"[dim]Publishing episode from [bold]{audio_path.name}[/bold][/dim]")
         publish_episode(script, digest, audio_path, period_start, period_end)
 
-    async def _run_all(self, density: ContentDensity) -> None:
+    async def _run_all(self, density: ContentDensity, quality: AudioQuality = AudioQuality.high) -> None:
         from .models import NarratorMode
         from .pipeline import run_digest, run_ingest, run_podcast
         deps = self._make_deps()
@@ -665,7 +730,7 @@ class HypeHoundApp(App):
         start = end - timedelta(days=1)
         digest_state = await run_digest(start, end, density=density, deps=deps)
         if digest_state.digest is not None:
-            await run_podcast(start, end, mode=NarratorMode.dual, density=density, deps=deps, digest=digest_state.digest, publish=True)
+            await run_podcast(start, end, mode=NarratorMode.dual, density=density, quality=quality, deps=deps, digest=digest_state.digest, publish=True)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.state == WorkerState.ERROR:

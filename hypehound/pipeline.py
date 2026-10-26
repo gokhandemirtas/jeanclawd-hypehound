@@ -11,7 +11,7 @@ from .classify import classify
 from .digest import generate_digest
 from .ingest import fetch_new_emails
 from .log import log, step
-from .models import ContentDensity, Digest, NarratorMode, PodcastScript
+from .models import AudioQuality, ContentDensity, Digest, NarratorMode, PodcastScript
 from .store import mark_processed, save_email, save_items
 
 
@@ -43,6 +43,7 @@ class PipelineState(BaseModel):
 
     # Shared output settings
     content_density: ContentDensity = ContentDensity.standard
+    audio_quality: AudioQuality = AudioQuality.high
 
     # Podcast (populated when --podcast is requested)
     podcast_script: PodcastScript | None = None
@@ -257,7 +258,7 @@ class GeneratePodcast(BaseNode[PipelineState, PipelineDeps]):
                     else _versioned_path("podcast", stem, ".m4a")
                 )
                 log.info(f"Starting TTS synthesis → [bold cyan]{audio_out}[/bold cyan]  ({len(script.segments)} segment(s))")
-                await synthesize_script(script, audio_out)
+                await synthesize_script(script, audio_out, bitrate=ctx.state.audio_quality.bitrate)
                 ctx.state.podcast_audio_resolved = str(audio_out)
             else:
                 log.info("[dim]TTS disabled — script only[/dim]")
@@ -382,6 +383,7 @@ async def run_podcast(
     period_end: datetime,
     mode: NarratorMode = NarratorMode.dual,
     density: ContentDensity = ContentDensity.standard,
+    quality: AudioQuality = AudioQuality.high,
     tts: bool = True,
     json_path: str | None = None,
     audio_path: str | None = None,
@@ -396,6 +398,7 @@ async def run_podcast(
         period_start=period_start,
         period_end=period_end,
         content_density=density,
+        audio_quality=quality,
         digest=digest,
         podcast_mode=mode,
         podcast_tts=tts,

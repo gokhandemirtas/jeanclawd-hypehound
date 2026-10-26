@@ -39,6 +39,22 @@ class NarratorMode(str, Enum):
     dual = "dual"
 
 
+class ContentDensity(str, Enum):
+    brief = "brief"
+    standard = "standard"
+    detailed = "detailed"
+
+
+class AudioQuality(str, Enum):
+    low = "low"        # 32 kbps — ~half the size, transparent for speech
+    medium = "medium"  # 48 kbps — good balance
+    high = "high"      # 64 kbps — current default, excellent voice quality
+
+    @property
+    def bitrate(self) -> str:
+        return {"low": "32k", "medium": "48k", "high": "64k"}[self.value]
+
+
 class ScriptLine(BaseModel):
     speaker: str | None = None  # None for single; "ALEX" or "SARA" for dual
     text: str

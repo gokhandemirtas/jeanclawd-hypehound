@@ -92,9 +92,9 @@ async def _synthesize_segment(segment: PodcastSegment, mode: NarratorMode, outpu
 _FFMPEG_CHUNK = 64  # max inputs per ffmpeg call (well under OS open-file limit)
 
 
-def _ffmpeg_concat(inputs: list[Path], output: Path, final_encode: bool) -> None:
+def _ffmpeg_concat(inputs: list[Path], output: Path, final_encode: bool, bitrate: str = "64k") -> None:
     """Single ffmpeg concat call; output is always WAV unless final_encode=True (M4A)."""
-    codec = ["-c:a", "aac", "-b:a", "64k", "-ac", "1", "-movflags", "+faststart"] if final_encode else ["-c:a", "pcm_s16le"]
+    codec = ["-c:a", "aac", "-b:a", bitrate, "-ac", "1", "-movflags", "+faststart"] if final_encode else ["-c:a", "pcm_s16le"]
     input_args = []
     for p in inputs:
         input_args += ["-i", str(p)]
@@ -108,14 +108,14 @@ def _ffmpeg_concat(inputs: list[Path], output: Path, final_encode: bool) -> None
         raise RuntimeError(f"ffmpeg failed (exit {result.returncode}):\n{result.stderr.decode(errors='replace')}")
 
 
-def _concat_to(inputs: list[Path], output: Path) -> None:
+def _concat_to(inputs: list[Path], output: Path, bitrate: str = "64k") -> None:
     """Concat audio files; uses chunked progressive stitching to stay under OS open-file limits."""
     if len(inputs) == 1:
         shutil.copy(inputs[0], output)
         return
 
     if len(inputs) <= _FFMPEG_CHUNK:
-        _ffmpeg_concat(inputs, output, final_encode=output.suffix.lower() == ".m4a")
+        _ffmpeg_concat(inputs, output, final_encode=output.suffix.lower() == ".m4a", bitrate=bitrate)
         return
 
     # Progressive: reduce in chunks of _FFMPEG_CHUNK until one file remains
@@ -135,12 +135,12 @@ def _concat_to(inputs: list[Path], output: Path) -> None:
                 next_pass.append(merged)
             current = next_pass
             pass_num += 1
-        _ffmpeg_concat(current, output, final_encode=output.suffix.lower() == ".m4a")
+        _ffmpeg_concat(current, output, final_encode=output.suffix.lower() == ".m4a", bitrate=bitrate)
 
 
 # --- Public API --------------------------------------------------------------
 
-async def synthesize_script(script: PodcastScript, output_path: Path) -> Path:
+async def synthesize_script(script: PodcastScript, output_path: Path, bitrate: str = "64k") -> Path:
     """
     Render a PodcastScript to an M4A audio file using voicebox.
 
@@ -187,7 +187,7 @@ async def synthesize_script(script: PodcastScript, output_path: Path) -> Path:
             interleaved.append(silence_path)
 
     with step("Join and encode audio"):
-        await asyncio.get_event_loop().run_in_executor(None, _concat_to, interleaved, output_path)
+        await asyncio.get_event_loop().run_in_executor(None, _concat_to, interleaved, output_path, bitrate)
 
     log.info(f"Podcast saved → [bold cyan]{output_path}[/bold cyan]  (segments in {segments_dir})")
     return output_path
