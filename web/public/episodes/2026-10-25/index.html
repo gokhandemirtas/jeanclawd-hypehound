@@ -149,10 +149,10 @@
             Script // Narrator Feed
             <span class="text-[#656c7d] text-xs font-normal normal-case">· Click any card to seek</span>
           </h2>
-          <div class="flex items-center space-x-2 text-xs text-[#717182]">
+          <button id="syncToggle" class="flex items-center space-x-2 text-xs text-[#717182] hover:text-white transition-colors cursor-pointer" title="Toggle auto-scroll">
             <span class="inline-block w-2 h-2 rounded-full bg-[#00ff66]"></span>
-            <span>SYNC: <strong class="text-white">ON</strong></span>
-          </div>
+            <span>SYNC: <strong id="syncLabel" class="text-white">ON</strong></span>
+          </button>
         </div>
         <div class="space-y-3 lg:max-h-[680px] lg:overflow-y-auto pr-1" id="scriptContainer">
           <div class="bg-[#1f1f25] border border-[#2d2d38] p-4 hover:border-[#404052] transition-colors group segment" data-idx="0" data-start="8.0" data-end="22.712">
@@ -2084,6 +2084,13 @@
   var audio = document.getElementById('player');
   var els = Array.from(document.querySelectorAll('.segment[data-idx]'));
   var lastActive = -1;
+  var syncEnabled = true;
+  var syncToggle = document.getElementById('syncToggle');
+  if (syncToggle) syncToggle.addEventListener('click', function () {
+    syncEnabled = !syncEnabled;
+    syncToggle.querySelector('#syncLabel').textContent = syncEnabled ? 'ON' : 'OFF';
+    syncToggle.style.opacity = syncEnabled ? '1' : '0.45';
+  });
 
   function fmtTime(s) {
     var m = Math.floor(s / 60), sec = Math.floor(s % 60);
@@ -2123,10 +2130,17 @@
     if (syncEl) syncEl.textContent = activeIdx >= 0
       ? 'SYNCED · PARAGRAPH #' + String(activeIdx + 1).padStart(2, '0')
       : 'WAITING FOR PLAYBACK';
+    var sc = document.getElementById('scriptContainer');
     els.forEach(function (el) {
       var isActive = parseInt(el.dataset.idx, 10) === activeIdx;
       el.classList.toggle('active', isActive);
-      if (isActive) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (isActive && syncEnabled && sc) {
+        var elTop = el.offsetTop - sc.offsetTop;
+        var elBot = elTop + el.offsetHeight;
+        if (elTop < sc.scrollTop || elBot > sc.scrollTop + sc.clientHeight) {
+          sc.scrollTop = elTop - 16;
+        }
+      }
     });
   });
 
