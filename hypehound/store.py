@@ -162,6 +162,12 @@ def get_latest_digest_content() -> str | None:
     return row["content"] if row else None
 
 
+def clear_digests() -> None:
+    """Remove all digest records so all classified items become eligible for a fresh digest."""
+    with _conn() as conn:
+        conn.executescript("DELETE FROM digest_items; DELETE FROM digests;")
+
+
 def save_digest(period_start: datetime, period_end: datetime, content: str) -> int:
     with _conn() as conn:
         cursor = conn.execute(

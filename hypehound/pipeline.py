@@ -183,6 +183,9 @@ class BuildDigest(BaseNode[PipelineState, PipelineDeps]):
     async def run(self, ctx: GraphRunContext[PipelineState, PipelineDeps]) -> End[PipelineState]:
         ctx.deps.on_node_start("Digest")
         try:
+            from .store import clear_digests
+            clear_digests()
+            log.info("[dim]Previous digest cleared — all items eligible[/dim]")
             ctx.state.digest, ctx.state.digest_id = await generate_digest(
                 ctx.state.period_start, ctx.state.period_end, density=ctx.state.content_density
             )
